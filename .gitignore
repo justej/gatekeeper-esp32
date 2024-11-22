@@ -1,0 +1,6 @@
+.vscode
+.devcontainer
+
+build
+
+main/include/secrets.h
