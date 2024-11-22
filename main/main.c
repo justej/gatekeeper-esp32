@@ -18,7 +18,7 @@
 #include "secrets.h"
 
 
-#define NETIF_DESC_STA "example_netif_sta"
+#define NETIF_DESC_STA "gatekeeper_netif_sta"
 #define WIFI_CONN_MAX_RETRY 5
 
 #define WEB_SERVER "api.telegram.org"
@@ -42,29 +42,28 @@ static const char TELEGRAM_REQUEST[] = "GET " WEB_URL " HTTP/1.1\r\n"
                              "Connection: close\r\n"
                              "\r\n";
 
-static void example_handler_on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data);
-static void example_handler_on_wifi_disconnect(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-static void example_wifi_start(void);
-esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait);
-esp_err_t example_wifi_sta_do_disconnect(void);
-esp_err_t example_wifi_connect(void);
-void example_wifi_shutdown(void);
-void example_wifi_stop(void);
-static void example_handler_on_sta_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void on_wifi_disconnect(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void wifi_start(void);
+esp_err_t wifi_sta_do_connect(wifi_config_t wifi_config, bool wait);
+esp_err_t wifi_sta_do_disconnect(void);
+void disconnect_from_wifi(void);
+void wifi_stop(void);
+static void on_sta_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 #if CONNECT_IPV6
 static void example_handler_on_sta_got_ipv6(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 #endif
-bool example_is_our_netif(const char *prefix, esp_netif_t *netif);
-void example_print_all_netif_ips(const char *prefix);
+bool is_our_netif(const char *prefix, esp_netif_t *netif);
+void print_all_netif_ips(const char *prefix);
 static esp_err_t connect_to_wifi(void);
 
-static void example_handler_on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 #if CONNECT_IPV6
     esp_netif_create_ip6_linklocal(esp_netif);
 #endif // CONNECT_IPV6
 }
 
-bool example_is_our_netif(const char *prefix, esp_netif_t *netif) {
+bool is_our_netif(const char *prefix, esp_netif_t *netif) {
     return strncmp(prefix, esp_netif_get_desc(netif), strlen(prefix) - 1) == 0;
 }
 
@@ -73,7 +72,7 @@ static esp_err_t print_all_ips_tcpip(void* ctx) {
     // iterate over active interfaces, and print out IPs of "our" netifs
     esp_netif_t *netif = NULL;
     while ((netif = esp_netif_next_unsafe(netif)) != NULL) {
-        if (example_is_our_netif(prefix, netif)) {
+        if (is_our_netif(prefix, netif)) {
             ESP_LOGI(TAG, "Connected to %s", esp_netif_get_desc(netif));
 #if CONFIG_LWIP_IPV4
             esp_netif_ip_info_t ip;
@@ -94,15 +93,15 @@ static esp_err_t print_all_ips_tcpip(void* ctx) {
     return ESP_OK;
 }
 
-void example_print_all_netif_ips(const char *prefix) {
+void print_all_netif_ips(const char *prefix) {
     // Print all IPs in TCPIP context to avoid potential races of removing/adding netifs when iterating over the list
     esp_netif_tcpip_exec(print_all_ips_tcpip, (void*) prefix);
 }
 
-static void example_handler_on_sta_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void on_sta_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     s_retry_num = 0;
     ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-    if (!example_is_our_netif(NETIF_DESC_STA, event->esp_netif)) {
+    if (!is_our_netif(NETIF_DESC_STA, event->esp_netif)) {
         return;
     }
     ESP_LOGI(TAG, "Got IPv4 event: Interface \"%s\" address: " IPSTR, esp_netif_get_desc(event->esp_netif), IP2STR(&event->ip_info.ip));
@@ -116,7 +115,7 @@ static void example_handler_on_sta_got_ip(void *arg, esp_event_base_t event_base
 #if CONNECT_IPV6
 static void example_handler_on_sta_got_ipv6(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     ip_event_got_ip6_t *event = (ip_event_got_ip6_t *)event_data;
-    if (!example_is_our_netif(NETIF_DESC_STA, event->esp_netif)) {
+    if (!is_our_netif(NETIF_DESC_STA, event->esp_netif)) {
         return;
     }
     esp_ip6_addr_type_t ipv6_type = esp_netif_ip6_get_addr_type(&event->ip6_info.ip);
@@ -133,7 +132,7 @@ static void example_handler_on_sta_got_ipv6(void *arg, esp_event_base_t event_ba
 }
 #endif // CONNECT_IPV6
 
-static void example_wifi_start(void) {
+static void wifi_start(void) {
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -149,10 +148,10 @@ static void example_wifi_start(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
-esp_err_t example_wifi_sta_do_disconnect(void) {
-    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &example_handler_on_wifi_disconnect));
-    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &example_handler_on_sta_got_ip));
-    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &example_handler_on_wifi_connect));
+esp_err_t wifi_sta_do_disconnect(void) {
+    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect));
+    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_sta_got_ip));
+    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &on_wifi_connect));
 #if CONNECT_IPV6
     ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_GOT_IP6, &example_handler_on_sta_got_ipv6));
 #endif
@@ -167,11 +166,11 @@ esp_err_t example_wifi_sta_do_disconnect(void) {
     return esp_wifi_disconnect();
 }
 
-static void example_handler_on_wifi_disconnect(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void on_wifi_disconnect(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     s_retry_num++;
     if (s_retry_num > WIFI_CONN_MAX_RETRY) {
         ESP_LOGI(TAG, "WiFi Connect failed %d times, stop reconnect.", s_retry_num);
-        /* let example_wifi_sta_do_connect() return */
+        /* let wifi_sta_do_connect() return */
         if (s_semph_get_ip_addrs) {
             xSemaphoreGive(s_semph_get_ip_addrs);
         }
@@ -180,7 +179,7 @@ static void example_handler_on_wifi_disconnect(void *arg, esp_event_base_t event
             xSemaphoreGive(s_semph_get_ip6_addrs);
         }
 #endif
-        example_wifi_sta_do_disconnect();
+        wifi_sta_do_disconnect();
         return;
     }
     ESP_LOGI(TAG, "Wi-Fi disconnected, trying to reconnect...");
@@ -191,7 +190,7 @@ static void example_handler_on_wifi_disconnect(void *arg, esp_event_base_t event
     ESP_ERROR_CHECK(err);
 }
 
-esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
+esp_err_t wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
     if (wait) {
         s_semph_get_ip_addrs = xSemaphoreCreateBinary();
         if (s_semph_get_ip_addrs == NULL) {
@@ -206,9 +205,9 @@ esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
 #endif
     }
     s_retry_num = 0;
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &example_handler_on_wifi_disconnect, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &example_handler_on_sta_got_ip, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &example_handler_on_wifi_connect, s_example_sta_netif));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &on_wifi_disconnect, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &on_sta_got_ip, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &on_wifi_connect, s_example_sta_netif));
 #if CONNECT_IPV6
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &example_handler_on_sta_got_ipv6, NULL));
 #endif
@@ -222,9 +221,7 @@ esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
     }
     if (wait) {
         ESP_LOGI(TAG, "Waiting for IP(s)");
-#if CONFIG_EXAMPLE_CONNECT_IPV4
         xSemaphoreTake(s_semph_get_ip_addrs, portMAX_DELAY);
-#endif
 #if CONNECT_IPV6
         xSemaphoreTake(s_semph_get_ip6_addrs, portMAX_DELAY);
 #endif
@@ -235,24 +232,7 @@ esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
     return ESP_OK;
 }
 
-esp_err_t example_wifi_connect(void) {
-    ESP_LOGI(TAG, "Connecting to Wi-Fi...");
-    example_wifi_start();
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASSWORD,
-            .scan_method = WIFI_FAST_SCAN,
-            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
-            .threshold.rssi = 1,
-            .threshold.authmode = WIFI_AUTH_WPA_PSK,
-        },
-    };
-
-    return example_wifi_sta_do_connect(wifi_config, true);
-}
-
-void example_wifi_stop(void) {
+void wifi_stop(void) {
     esp_err_t err = esp_wifi_stop();
     if (err == ESP_ERR_WIFI_NOT_INIT) {
         return;
@@ -264,10 +244,10 @@ void example_wifi_stop(void) {
     s_example_sta_netif = NULL;
 }
 
-void example_wifi_shutdown(void)
+void disconnect_from_wifi(void)
 {
-    example_wifi_sta_do_disconnect();
-    example_wifi_stop();
+    wifi_sta_do_disconnect();
+    wifi_stop();
 }
 
 static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, const char* REQUEST) {
@@ -339,12 +319,25 @@ cleanup:
 }
 
 static esp_err_t connect_to_wifi(void) {
-    if (example_wifi_connect() != ESP_OK) {
+    ESP_LOGI(TAG, "Connecting to Wi-Fi...");
+    wifi_start();
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASSWORD,
+            .scan_method = WIFI_FAST_SCAN,
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
+            .threshold.rssi = 1,
+            .threshold.authmode = WIFI_AUTH_WPA_PSK,
+        },
+    };
+
+    if (wifi_sta_do_connect(wifi_config, true) != ESP_OK) {
         return ESP_FAIL;
     }
-    ESP_ERROR_CHECK(esp_register_shutdown_handler(&example_wifi_shutdown));
+    ESP_ERROR_CHECK(esp_register_shutdown_handler(&disconnect_from_wifi));
     
-    example_print_all_netif_ips("example_netif_sta");
+    print_all_netif_ips(NETIF_DESC_STA);
     return ESP_OK;
 }
 
