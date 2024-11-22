@@ -56,7 +56,7 @@ static void example_handler_on_sta_got_ipv6(void *arg, esp_event_base_t event_ba
 #endif
 bool example_is_our_netif(const char *prefix, esp_netif_t *netif);
 void example_print_all_netif_ips(const char *prefix);
-static esp_err_t example_connect(void);
+static esp_err_t connect_to_wifi(void);
 
 static void example_handler_on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data) {
 #if CONNECT_IPV6
@@ -236,7 +236,7 @@ esp_err_t example_wifi_sta_do_connect(wifi_config_t wifi_config, bool wait) {
 }
 
 esp_err_t example_wifi_connect(void) {
-    ESP_LOGI(TAG, "Start example_connect.");
+    ESP_LOGI(TAG, "Connecting to Wi-Fi...");
     example_wifi_start();
     wifi_config_t wifi_config = {
         .sta = {
@@ -277,7 +277,7 @@ static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, con
     esp_tls_t* tls = esp_tls_init();
     if (!tls) {
         ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
-        goto exit;
+        return;
     }
 
     if (esp_tls_conn_http_new_sync(WEB_SERVER_URL, &cfg, tls) == 1) {
@@ -336,22 +336,9 @@ static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, con
 
 cleanup:
     esp_tls_conn_destroy(tls);
-exit:
-    for (int countdown = 3; countdown >= 0; countdown--) {
-        ESP_LOGI(TAG, "%d...", countdown);
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
 }
 
-static void https_get_request_using_crt_bundle(void) {
-    ESP_LOGI(TAG, "HTTPS request using crt bundle");
-    esp_tls_cfg_t cfg = {
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
-    https_get_request(cfg, WEB_URL, TELEGRAM_REQUEST);
-}
-
-static esp_err_t example_connect(void) {
+static esp_err_t connect_to_wifi(void) {
     if (example_wifi_connect() != ESP_OK) {
         return ESP_FAIL;
     }
@@ -464,11 +451,21 @@ exit:
 }
 
 static void getekeeper_task(void* pvparameters) {
-    ESP_LOGI(TAG, "Start HTTPS request example");
-    https_get_request_using_crt_bundle();
-    ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
-    ESP_LOGI(TAG, "Finish HTTPS request example");
-    vTaskDelete(NULL);
+    ESP_LOGI(TAG, "Starting Gatekeeper");
+    esp_tls_cfg_t cfg = {
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    while (42) {
+        https_get_request(cfg, WEB_URL, TELEGRAM_REQUEST);
+        ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
+
+        for (int countdown = 3; countdown >= 0; countdown--) {
+            ESP_LOGI(TAG, "%d...", countdown);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
+        }
+    }
+
 }
 
 void app_main(void) {
@@ -476,11 +473,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
-     * Read "Establishing Wi-Fi or Ethernet Connection" section in
-     * examples/protocols/README.md for more information about this function.
-     */
-    ESP_ERROR_CHECK(example_connect());
+    ESP_ERROR_CHECK(connect_to_wifi());
 
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");
@@ -494,8 +487,6 @@ void app_main(void) {
     esp_timer_handle_t nvs_update_timer;
     ESP_ERROR_CHECK(esp_timer_create(&nvs_update_timer_args, &nvs_update_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(nvs_update_timer, TIME_PERIOD));
-
-    ESP_LOGI(TAG, "connecting to %s", WEB_URL);
 
     xTaskCreate(&getekeeper_task, "gatekeeper", 8192, NULL, 5, NULL);
 }
