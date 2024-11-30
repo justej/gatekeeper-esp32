@@ -13,6 +13,7 @@
 #include "secrets.h"
 #include "wifi_connect.h"
 #include "time_sync.h"
+#include "tg.h"
 
 
 #define WEB_SERVER "api.telegram.org"
@@ -25,22 +26,26 @@ static const char TAG[] = "gatekeeper";
 #define TIME_PERIOD (86400000000ULL)
 
 static const char TELEGRAM_REQUEST[] = "GET " WEB_URL " HTTP/1.1\r\n"
-                             "Host: "WEB_SERVER"\r\n"
-                             "User-Agent: esp-idf/1.0 esp32\r\n"
-                             "Connection: close\r\n"
-                             "\r\n";
+"Host: "WEB_SERVER"\r\n"
+"User-Agent: esp-idf/1.0 esp32\r\n"
+"Connection: close\r\n"
+"\r\n";
 
-static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, const char* REQUEST) {
-    char buf[512];
-    int ret, len;
+static char buf[4096];
 
+static void handler(char* buf, tg_update_t* update) {
+    tg_log(buf, update);
+}
+
+static void https_get_request(esp_tls_cfg_t cfg, const char* web_server_url, const char* request, char* buf, int n) {
     esp_tls_t* tls = esp_tls_init();
     if (!tls) {
         ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
         return;
     }
 
-    if (esp_tls_conn_http_new_sync(WEB_SERVER_URL, &cfg, tls) == 1) {
+    int ret;
+    if (esp_tls_conn_http_new_sync(web_server_url, &cfg, tls) == 1) {
         ESP_LOGI(TAG, "Connection established...");
     } else {
         ESP_LOGE(TAG, "Connection failed...");
@@ -58,8 +63,8 @@ static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, con
     size_t written_bytes = 0;
     do {
         ret = esp_tls_conn_write(tls,
-            REQUEST + written_bytes,
-            strlen(REQUEST) - written_bytes);
+            request + written_bytes,
+            strlen(request) - written_bytes);
         if (ret >= 0) {
             ESP_LOGI(TAG, "%d bytes written", ret);
             written_bytes += ret;
@@ -67,13 +72,12 @@ static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, con
             ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
             goto cleanup;
         }
-    } while (written_bytes < strlen(REQUEST));
+    } while (written_bytes < strlen(request));
 
     ESP_LOGI(TAG, "Reading HTTP response...");
     do {
-        len = sizeof(buf) - 1;
-        memset(buf, 0x00, sizeof(buf));
-        ret = esp_tls_conn_read(tls, (char*)buf, len);
+        memset(buf, 0x00, n);
+        ret = esp_tls_conn_read(tls, (char*)buf, n - 1);
 
         if (ret == ESP_TLS_ERR_SSL_WANT_WRITE || ret == ESP_TLS_ERR_SSL_WANT_READ) {
             continue;
@@ -85,13 +89,15 @@ static void https_get_request(esp_tls_cfg_t cfg, const char* WEB_SERVER_URL, con
             break;
         }
 
-        len = ret;
+        int len = ret;
         ESP_LOGD(TAG, "%d bytes read", len);
         /* Print response directly to stdout as it is read */
         for (int i = 0; i < len; i++) {
             putchar(buf[i]);
         }
-        putchar('\n'); // JSON output doesn't have a newline at end
+        puts("\n\n\n"); // JSON output doesn't have a newline at end
+
+        tg_parse(buf, ret, handler);
     } while (1);
 
 cleanup:
@@ -100,12 +106,13 @@ cleanup:
 
 static void getekeeper_task(void* pvparameters) {
     ESP_LOGI(TAG, "Starting Gatekeeper");
+
     esp_tls_cfg_t cfg = {
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     while (42) {
-        https_get_request(cfg, WEB_URL, TELEGRAM_REQUEST);
+        https_get_request(cfg, WEB_URL, TELEGRAM_REQUEST, buf, sizeof(buf));
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
         for (int countdown = 3; countdown >= 0; countdown--) {
@@ -113,7 +120,6 @@ static void getekeeper_task(void* pvparameters) {
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }
-
 }
 
 void app_main(void) {
