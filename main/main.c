@@ -2,8 +2,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#include "esp_tls.h"
-#include "esp_crt_bundle.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -16,110 +14,18 @@
 #include "tg.h"
 
 
-#define WEB_SERVER "api.telegram.org"
-#define WEB_PORT "443"
-#define WEB_URL "https://" WEB_SERVER "/bot" BOT_TOKEN "/getUpdates?offset=0&limit=10"
-
-
 static const char TAG[] = "gatekeeper";
 
 #define TIME_PERIOD (86400000000ULL)
 
-static const char TELEGRAM_REQUEST[] = "GET " WEB_URL " HTTP/1.1\r\n"
-"Host: "WEB_SERVER"\r\n"
-"User-Agent: esp-idf/1.0 esp32\r\n"
-"Connection: close\r\n"
-"\r\n";
-
-static char buf[4096];
-
 static void handler(char* buf, tg_update_t* update) {
-    tg_log(buf, update);
+    tg_log_token(buf, "handled update", update->id);
 }
 
-static void https_get_request(esp_tls_cfg_t cfg, const char* web_server_url, const char* request, char* buf, int n) {
-    esp_tls_t* tls = esp_tls_init();
-    if (!tls) {
-        ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
-        return;
-    }
-
-    int ret;
-    if (esp_tls_conn_http_new_sync(web_server_url, &cfg, tls) == 1) {
-        ESP_LOGI(TAG, "Connection established...");
-    } else {
-        ESP_LOGE(TAG, "Connection failed...");
-        int esp_tls_code = 0, esp_tls_flags = 0;
-        esp_tls_error_handle_t tls_e = NULL;
-        esp_tls_get_error_handle(tls, &tls_e);
-        /* Try to get TLS stack level error and certificate failure flags, if any */
-        ret = esp_tls_get_and_clear_last_error(tls_e, &esp_tls_code, &esp_tls_flags);
-        if (ret == ESP_OK) {
-            ESP_LOGE(TAG, "TLS error = -0x%x, TLS flags = -0x%x", esp_tls_code, esp_tls_flags);
-        }
-        goto cleanup;
-    }
-
-    size_t written_bytes = 0;
-    do {
-        ret = esp_tls_conn_write(tls,
-            request + written_bytes,
-            strlen(request) - written_bytes);
-        if (ret >= 0) {
-            ESP_LOGI(TAG, "%d bytes written", ret);
-            written_bytes += ret;
-        } else if (ret != ESP_TLS_ERR_SSL_WANT_READ && ret != ESP_TLS_ERR_SSL_WANT_WRITE) {
-            ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
-            goto cleanup;
-        }
-    } while (written_bytes < strlen(request));
-
-    ESP_LOGI(TAG, "Reading HTTP response...");
-    do {
-        memset(buf, 0x00, n);
-        ret = esp_tls_conn_read(tls, (char*)buf, n - 1);
-
-        if (ret == ESP_TLS_ERR_SSL_WANT_WRITE || ret == ESP_TLS_ERR_SSL_WANT_READ) {
-            continue;
-        } else if (ret < 0) {
-            ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
-            break;
-        } else if (ret == 0) {
-            ESP_LOGI(TAG, "connection closed");
-            break;
-        }
-
-        int len = ret;
-        ESP_LOGD(TAG, "%d bytes read", len);
-        /* Print response directly to stdout as it is read */
-        for (int i = 0; i < len; i++) {
-            putchar(buf[i]);
-        }
-        puts("\n\n\n"); // JSON output doesn't have a newline at end
-
-        tg_parse(buf, ret, handler);
-    } while (1);
-
-cleanup:
-    esp_tls_conn_destroy(tls);
-}
 
 static void getekeeper_task(void* pvparameters) {
     ESP_LOGI(TAG, "Starting Gatekeeper");
-
-    esp_tls_cfg_t cfg = {
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
-
-    while (42) {
-        https_get_request(cfg, WEB_URL, TELEGRAM_REQUEST, buf, sizeof(buf));
-        ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
-
-        for (int countdown = 3; countdown >= 0; countdown--) {
-            ESP_LOGI(TAG, "%d...", countdown);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
-    }
+    tg_start(BOT_TOKEN, handler);
 }
 
 void app_main(void) {
@@ -138,7 +44,6 @@ void app_main(void) {
         },
     };
     ESP_ERROR_CHECK(connect_to_wifi(&wifi_config));
-    // ESP_ERROR_CHECK(connect_to_wifi(WIFI_SSID, WIFI_PASSWORD));
 
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");

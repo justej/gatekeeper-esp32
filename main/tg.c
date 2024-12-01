@@ -1,18 +1,37 @@
 #include <stdio.h>
 #include <string.h>
+#include "freertos/FreeRTOS.h"
+
 #include "esp_log.h"
+
+#include "esp_tls.h"
+#include "esp_crt_bundle.h"
 
 #include "jsmn.h"
 #include "tg.h"
 
 // #define JSMN_DEBUG
 
+#define AS_STRING(x) #x
+
+#define TG_UPDATES_COUNT 5
 #define TOK_LEN 512
-#define MESSAGE_BUF_SIZE 10
+
+#define HOST_NAME "api.telegram.org"
+#define WEB_SERVER_URL "https://" HOST_NAME
+#define WEB_PORT "443"
+
+#define GET_REQUEST_HEADERS_FORMAT_STRING "GET " WEB_SERVER_URL "/bot%s/getUpdates?offset=%li&limit=5 HTTP/1.1\r\n" \
+    "Host: " HOST_NAME "\r\n" \
+    "User-Agent: esp-idf/1.0 esp32\r\n" \
+    "Connection: close\r\n\r\n"
+
+static jsmntok_t tokens[TOK_LEN];
+static char buf[4096];
+static char request[256]; // make sure the request fits this size because currently it's almost overflown
+static long update_id = -1;
 
 static const char TAG[] = "tg";
-
-jsmntok_t tokens[TOK_LEN];
 
 #ifdef JSMN_DEBUG
 static char* token_type(jsmntype_t t) {
@@ -31,18 +50,8 @@ static char* token_type(jsmntype_t t) {
             ESP_LOGI(TAG, "type: %s, start: %i, end: %i, size: %i", token_type(tokens[i_tok].type), tokens[i_tok].start, tokens[i_tok].end, tokens[i_tok].size); \
             ESP_LOGI(TAG, "i_tok: %i, len: %i,  value: %s", i_tok, tokens[i_tok].end - tokens[i_tok].start, &buf[tokens[i_tok].start]); \
         } while (0)
-#else
-#define __JSMNLOG(buf, tokens, i_tok)
-#endif
 
-void tg_log_token(char* buf, char* key, jsmntok_t* token) {
-    if (token != NULL) {
-        buf[token->end] = '\0';
-        printf("%s: %s\n", key, &buf[token->start]);
-    }
-}
-
-void tg_log(char* buf, tg_update_t* update) {
+static void tg_log(char* buf, tg_update_t* update) {
     jsmntok_t* token;
     if (update == NULL) return;
 
@@ -73,6 +82,16 @@ void tg_log(char* buf, tg_update_t* update) {
 
         tg_log_token(buf, "text", update->message->text);
     }
+}
+#else
+#define __JSMNLOG(buf, tokens, i_tok)
+#endif
+
+void tg_log_token(char* buf, char* key, jsmntok_t* token) {
+    if (token == NULL) return;
+
+    buf[token->end] = '\0';
+    printf("%s: %s\n", key, &buf[token->start]);
 }
 
 static bool jsmn_strcmp(char* buf, jsmntok_t* token, char* str) {
@@ -127,7 +146,7 @@ static void skip_tokens(jsmntok_t* tokens, int parsed_len, int* i_tok) {
     }
 }
 
-static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int* i_tok, int parsed_len) {
+static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed_len, int* i_tok) {
     int size = tokens[*i_tok].size;
 
     __JSMNLOG(buf, tokens, *i_tok);
@@ -204,7 +223,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int* i_tok
     return true;
 }
 
-static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int* i_tok, int parsed_len) {
+static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed_len, int* i_tok) {
     int size = tokens[*i_tok].size;
 
     __JSMNLOG(buf, tokens, *i_tok);
@@ -281,7 +300,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int* i_tok
     return true;
 }
 
-static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, int* i_tok, int parsed_len) {
+static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, int parsed_len, int* i_tok) {
     int size = tokens[*i_tok].size;
 
     __JSMNLOG(buf, tokens, *i_tok);
@@ -307,7 +326,7 @@ static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, i
         if (jsmn_strcmp(buf, &tokens[*i_tok], "from")) {
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
-            if (parse_user(message->from, buf, tokens, i_tok, parsed_len)) {
+            if (parse_user(message->from, buf, tokens, parsed_len, i_tok)) {
                 continue;
             } else {
                 return false;
@@ -317,7 +336,7 @@ static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, i
         if (jsmn_strcmp(buf, &tokens[*i_tok], "chat")) {
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
-            if (parse_chat(message->chat, buf, tokens, i_tok, parsed_len)) {
+            if (parse_chat(message->chat, buf, tokens, parsed_len, i_tok)) {
                 continue;
             } else {
                 return false;
@@ -342,7 +361,7 @@ static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, i
     return true;
 }
 
-static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int* i_tok, int parsed_len) {
+static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int parsed_len, int* i_tok) {
     int size = tokens[*i_tok].size;
 
     __JSMNLOG(buf, tokens, *i_tok);
@@ -368,7 +387,7 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int*
         if (jsmn_strcmp(buf, &tokens[*i_tok], "message")) {
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
-            if (parse_message(update->message, buf, tokens, i_tok, parsed_len)) {
+            if (parse_message(update->message, buf, tokens, parsed_len, i_tok)) {
                 continue;
             } else {
                 return false;
@@ -381,18 +400,24 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int*
     return true;
 }
 
-static void handle_updates(char* buf, int buf_len, void update_handler(char*, tg_update_t*)) {
-    ESP_LOGI(TAG, "JSON: %*s", buf_len, buf);
-
+static void handle_updates(char* buf, int buf_size, void update_handler(char*, tg_update_t*)) {
     jsmn_parser parser;
 
     jsmn_init(&parser);
-    int parsed_len = jsmn_parse(&parser, buf, buf_len, tokens, TOK_LEN);
+    int parsed_len = jsmn_parse(&parser, buf, buf_size, tokens, TOK_LEN);
+
+    if (parsed_len < 0) {
+        ESP_LOGE(TAG, "JSON error: %i", parsed_len);
+        return;
+    }
 
     int i_tok = 0;
-    // for (i_tok = 0; i_tok < parsed_len; i_tok++) {
-    //     __JSMNLOG(buf, tokens, i_tok);
-    // }
+#ifdef JSMN_DEBUG
+    for (i_tok = 0; i_tok < parsed_len; i_tok++) {
+        __JSMNLOG(buf, tokens, i_tok);
+    }
+    ESP_LOGI(TAG, "=====");
+#endif
 
     // first object
     if (tokens[i_tok].type != JSMN_OBJECT) {
@@ -449,7 +474,10 @@ static void handle_updates(char* buf, int buf_len, void update_handler(char*, tg
                 };
 
                 ESP_LOGI(TAG, "update %i / %i", i, size);
-                if (parse_update(&update, buf, tokens, &i_tok, parsed_len)) {
+                if (parse_update(&update, buf, tokens, parsed_len, &i_tok)) {
+                    buf[update.id->end] = '\0';
+                    update_id = atol(&buf[update.id->start]);
+
                     update_handler(buf, &update);
                 }
             }
@@ -460,7 +488,7 @@ static void handle_updates(char* buf, int buf_len, void update_handler(char*, tg
     }
 }
 
-void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*)) {
+static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*)) {
     if (buf_len < 4) {
         return;
     }
@@ -470,6 +498,92 @@ void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*)) 
             start_pos += 4;
             handle_updates(buf + start_pos, buf_len - start_pos, update_handler);
             return;
+        }
+    }
+}
+
+static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* bot_token, void handler(char* buf, tg_update_t* update)) {
+    esp_tls_t* tls = esp_tls_init();
+    if (!tls) {
+        ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
+        return;
+    }
+
+    sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
+    ESP_LOGI(TAG, "%s", request);
+
+    int ret;
+    if (esp_tls_conn_http_new_sync(WEB_SERVER_URL, &cfg, tls) == 1) {
+        ESP_LOGI(TAG, "Connection established...");
+    } else {
+        ESP_LOGE(TAG, "Connection failed...");
+        int esp_tls_code = 0, esp_tls_flags = 0;
+        esp_tls_error_handle_t tls_e = NULL;
+        esp_tls_get_error_handle(tls, &tls_e);
+        /* Try to get TLS stack level error and certificate failure flags, if any */
+        ret = esp_tls_get_and_clear_last_error(tls_e, &esp_tls_code, &esp_tls_flags);
+        if (ret == ESP_OK) {
+            ESP_LOGE(TAG, "TLS error = -0x%x, TLS flags = -0x%x", esp_tls_code, esp_tls_flags);
+        }
+        goto cleanup;
+    }
+
+    size_t written_bytes = 0;
+    do {
+        ret = esp_tls_conn_write(tls,
+            request + written_bytes,
+            strlen(request) - written_bytes);
+        if (ret >= 0) {
+            ESP_LOGI(TAG, "%d bytes written", ret);
+            written_bytes += ret;
+        } else if (ret != ESP_TLS_ERR_SSL_WANT_READ && ret != ESP_TLS_ERR_SSL_WANT_WRITE) {
+            ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
+            goto cleanup;
+        }
+    } while (written_bytes < strlen(request));
+
+    ESP_LOGI(TAG, "Reading HTTP response...");
+    do {
+        memset(buf, 0x00, buf_size);
+        ret = esp_tls_conn_read(tls, (char*)buf, buf_size - 1);
+
+        if (ret == ESP_TLS_ERR_SSL_WANT_WRITE || ret == ESP_TLS_ERR_SSL_WANT_READ) {
+            continue;
+        } else if (ret < 0) {
+            ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
+            break;
+        } else if (ret == 0) {
+            ESP_LOGI(TAG, "connection closed");
+            break;
+        }
+
+        int len = ret;
+        ESP_LOGD(TAG, "%d bytes read", len);
+        /* Print response directly to stdout as it is read */
+        for (int i = 0; i < len; i++) {
+            putchar(buf[i]);
+        }
+        puts("\n\n\n"); // JSON output doesn't have a newline at end
+
+        tg_parse(buf, ret, handler);
+    } while (1);
+
+cleanup:
+    esp_tls_conn_destroy(tls);
+}
+
+void tg_start(char* token, void update_handler(char*, tg_update_t*)) {
+    esp_tls_cfg_t cfg = {
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    while (42) {
+        ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
+
+        https_get_request(buf, sizeof(buf), cfg, token, update_handler);
+        for (int countdown = 3; countdown >= 0; countdown--) {
+            ESP_LOGI(TAG, "%d...", countdown);
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }
 }

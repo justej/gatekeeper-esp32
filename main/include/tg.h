@@ -38,8 +38,7 @@ typedef struct {
     tg_message_t* message;
 } tg_update_t;
 
-void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*));
-void tg_log(char* buf, tg_update_t* update);
 void tg_log_token(char* buf, char* key, jsmntok_t* token);
+void tg_start(char* token, void update_handler(char*, tg_update_t*));
 
 #endif // _TG_H_
