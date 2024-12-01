@@ -10,7 +10,7 @@
 #include "jsmn.h"
 #include "tg.h"
 
-// #define JSMN_DEBUG
+// #define TG_DEBUG
 
 #define AS_STRING(x) #x
 
@@ -33,7 +33,7 @@ static long update_id = -1;
 
 static const char TAG[] = "tg";
 
-#ifdef JSMN_DEBUG
+#ifdef TG_DEBUG
 static char* token_type(jsmntype_t t) {
     switch (t) {
     case JSMN_UNDEFINED: return "UNDEFINED";
@@ -412,7 +412,7 @@ static void handle_updates(char* buf, int buf_size, void update_handler(char*, t
     }
 
     int i_tok = 0;
-#ifdef JSMN_DEBUG
+#ifdef TG_DEBUG
     for (i_tok = 0; i_tok < parsed_len; i_tok++) {
         __JSMNLOG(buf, tokens, i_tok);
     }
@@ -510,7 +510,6 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
     }
 
     sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
-    ESP_LOGI(TAG, "%s", request);
 
     int ret;
     if (esp_tls_conn_http_new_sync(WEB_SERVER_URL, &cfg, tls) == 1) {
@@ -560,10 +559,12 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
         int len = ret;
         ESP_LOGD(TAG, "%d bytes read", len);
         /* Print response directly to stdout as it is read */
+#ifdef TG_DEBUG
         for (int i = 0; i < len; i++) {
             putchar(buf[i]);
         }
         puts("\n\n\n"); // JSON output doesn't have a newline at end
+#endif
 
         tg_parse(buf, ret, handler);
     } while (1);
@@ -581,9 +582,7 @@ void tg_start(char* token, void update_handler(char*, tg_update_t*)) {
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
         https_get_request(buf, sizeof(buf), cfg, token, update_handler);
-        for (int countdown = 3; countdown >= 0; countdown--) {
-            ESP_LOGI(TAG, "%d...", countdown);
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
-        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }
