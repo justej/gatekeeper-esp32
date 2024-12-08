@@ -400,7 +400,7 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int 
     return true;
 }
 
-static void handle_updates(char* buf, int buf_size, void update_handler(char*, tg_update_t*)) {
+static void handle_updates(char* buf, int buf_size, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmn_parser parser;
 
     jsmn_init(&parser);
@@ -478,7 +478,7 @@ static void handle_updates(char* buf, int buf_size, void update_handler(char*, t
                     buf[update.id->end] = '\0';
                     update_id = atol(&buf[update.id->start]);
 
-                    update_handler(buf, &update);
+                    update_handler(buf, &update, open_queue, status_queue);
                 }
             }
             continue;
@@ -488,7 +488,7 @@ static void handle_updates(char* buf, int buf_size, void update_handler(char*, t
     }
 }
 
-static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*)) {
+static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     if (buf_len < 4) {
         return;
     }
@@ -496,13 +496,13 @@ static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_updat
     for (int start_pos = 0; start_pos < buf_len; start_pos++) {
         if (strncmp(buf + start_pos, "\r\n\r\n", 4) == 0) {
             start_pos += 4;
-            handle_updates(buf + start_pos, buf_len - start_pos, update_handler);
+            handle_updates(buf + start_pos, buf_len - start_pos, update_handler, open_queue, status_queue);
             return;
         }
     }
 }
 
-static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* bot_token, void handler(char* buf, tg_update_t* update)) {
+static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* bot_token, void handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     esp_tls_t* tls = esp_tls_init();
     if (!tls) {
         ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
@@ -558,22 +558,22 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
 
         int len = ret;
         ESP_LOGD(TAG, "%d bytes read", len);
-        /* Print response directly to stdout as it is read */
 #ifdef TG_DEBUG
+        /* Print response directly to stdout as it is read */
         for (int i = 0; i < len; i++) {
             putchar(buf[i]);
         }
         puts("\n\n\n"); // JSON output doesn't have a newline at end
 #endif
 
-        tg_parse(buf, ret, handler);
+        tg_parse(buf, ret, handler, open_queue, status_queue);
     } while (1);
 
 cleanup:
     esp_tls_conn_destroy(tls);
 }
 
-void tg_start(char* token, void update_handler(char*, tg_update_t*)) {
+void tg_start(char* token, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     esp_tls_cfg_t cfg = {
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
@@ -581,7 +581,7 @@ void tg_start(char* token, void update_handler(char*, tg_update_t*)) {
     while (42) {
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
-        https_get_request(buf, sizeof(buf), cfg, token, update_handler);
+        https_get_request(buf, sizeof(buf), cfg, token, update_handler, open_queue, status_queue);
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }

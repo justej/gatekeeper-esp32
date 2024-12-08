@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "freertos/queue.h"
 
 #define JSMN_HEADER
 #include "jsmn.h"
@@ -38,7 +39,7 @@ typedef struct {
     tg_message_t* message;
 } tg_update_t;
 
-void tg_log_token(char* buf, char* key, jsmntok_t* token);
-void tg_start(char* token, void update_handler(char*, tg_update_t*));
+void tg_log_token(char* , char* , jsmntok_t* );
+void tg_start(char* , void (char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t, QueueHandle_t);
 
 #endif // _TG_H_

@@ -5,7 +5,7 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 
-esp_err_t connect_to_wifi(wifi_config_t *wifi_config);
+esp_err_t connect_to_wifi(wifi_config_t*);
 void disconnect_from_wifi(void);
 
 #endif // _WIFI_CONNECT_H_

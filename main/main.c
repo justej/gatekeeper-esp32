@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "driver/gpio.h"
 
 #include "sdkconfig.h"
 
@@ -12,70 +13,32 @@
 #include "wifi_connect.h"
 #include "time_sync.h"
 #include "tg.h"
-
+#include "handler.h"
+#include "gate_control.h"
 
 static const char TAG[] = "gatekeeper";
 
 #define TIME_PERIOD (86400000000ULL)
 
-typedef void (*message_handler_t)(tg_message_t* message);
-
-typedef struct {
-    char* command;
-    message_handler_t handler;
-} command_handler_t;
-
-void open_handler(tg_message_t* message) {
-    puts("gate's open");
-}
-
-void close_handler(tg_message_t* message) {
-    puts("gate's close");
-}
-
-void lock_opened_handler(tg_message_t* message) {
-    puts("gate's locked");
-}
-
-void unlock_handler(tg_message_t* message) {
-    puts("gate's unlocked");
-}
-
-command_handler_t command_handlers[] = {
-    {"/open", open_handler},
-    {"/close", close_handler},
-    {"/lockopened", lock_opened_handler},
-    {"/unlock", unlock_handler},
-};
-
-static void handler(char* buf, tg_update_t* update) {
-    tg_log_token(buf, "handling update", update->id);
-
-    jsmntok_t* text = update->message->text;
-    if (text == NULL) return;
-
-    for (int i = 0; i < sizeof(command_handlers) / sizeof(command_handlers[0]); i++) {
-        if (!strncmp(command_handlers[i].command, &buf[text->start], text->end - text->start)) {
-            command_handlers[i].handler(update->message);
-            return;
-        }
-    }
-
-    ESP_LOGE(TAG, "unknown command %.*s", text->end - text->start, &buf[text->start]);
-}
-
-static void gatekeeper_gate_closer_task(void* pvparameters) {
-    while (42) {
-        // TODO: close the gates
-    }
+static void gatekeeper_gate_control_task(void* pvparameters) {
+    ESP_LOGI(TAG, "Starting gate control task");
+    startGateControl(gk_open_queue, gk_status_queue);
 }
 
 static void gatekeeper_telegram_task(void* pvparameters) {
-    ESP_LOGI(TAG, "Starting Gatekeeper");
-    tg_start(BOT_TOKEN, handler);
+    ESP_LOGI(TAG, "Starting Telegram task");
+    tg_start(BOT_TOKEN, handler, gk_open_queue, gk_status_queue);
 }
 
 void app_main(void) {
+    gpio_config_t gate_gpio = {
+        .pin_bit_mask = GPIO_GATE_MASK,
+        .pull_up_en = true,
+        .pull_down_en = false,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&gate_gpio);
+
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -98,13 +61,16 @@ void app_main(void) {
     }
 
     const esp_timer_create_args_t nvs_update_timer_args = {
-            .callback = (void*)&fetch_and_store_time_in_nvs,
+        .callback = (void*)&fetch_and_store_time_in_nvs,
     };
 
     esp_timer_handle_t nvs_update_timer;
     ESP_ERROR_CHECK(esp_timer_create(&nvs_update_timer_args, &nvs_update_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(nvs_update_timer, TIME_PERIOD));
 
-    xTaskCreate(&gatekeeper_telegram_task, "gatekeeper", 8192, NULL, 5, NULL);
-    xTaskCreate(&gatekeeper_gate_closer_task, "gatekeeper", 8192, NULL, 5, NULL);
+    gk_open_queue = xQueueCreate(GK_OPEN_QUEUE_LENGTH, GK_OPEN_ITEM_SIZE);
+    gk_status_queue = xQueueCreate(GK_STATUS_QUEUE_LENGTH, GK_STATUS_ITEM_SIZE);
+
+    xTaskCreate(&gatekeeper_gate_control_task, "gkControl", 2048, NULL, 5, NULL);
+    xTaskCreate(&gatekeeper_telegram_task, "gkTelegram", 8192, NULL, 5, NULL);
 }
