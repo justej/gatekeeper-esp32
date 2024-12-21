@@ -3,6 +3,10 @@
 Uses APIs from `esp-tls` component to make a very simple HTTPS request over a secure connection, including verifying the server TLS certificate.
 
 ## How to use
+Activate the virtual env
+```
+. ~/esp/vX.Y.Z/esp-idf/export.sh
+```
 Before project configuration and build, be sure to set the correct chip target using `idf.py set-target <chip_name>`.
 
 ### Hardware Required
