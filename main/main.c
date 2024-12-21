@@ -27,7 +27,8 @@ static void gatekeeper_gate_control_task(void* pvparameters) {
 
 static void gatekeeper_telegram_task(void* pvparameters) {
     ESP_LOGI(TAG, "Starting Telegram task");
-    tg_start(BOT_TOKEN, gk_handler, gk_open_queue, gk_status_queue);
+    tg_init(BOT_TOKEN);
+    tg_start(gk_handler, gk_open_queue, gk_status_queue);
 }
 
 void app_main(void) {

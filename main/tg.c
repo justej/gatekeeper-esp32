@@ -21,19 +21,43 @@
 #define WEB_SERVER_URL "https://" HOST_NAME
 #define WEB_PORT "443"
 
-#define GET_REQUEST_HEADERS_FORMAT_STRING "GET " WEB_SERVER_URL "/bot%s/getUpdates?offset=%li&limit=5 HTTP/1.1\r\n" \
+#define GET_MESSAGES_FORMAT_STRING "GET /bot%s/getUpdates?offset=%li&limit=5 HTTP/1.1\r\n" \
     "Host: " HOST_NAME "\r\n" \
     "User-Agent: esp-idf/1.0 esp32\r\n" \
     "Connection: close\r\n\r\n"
+#define SEND_MESSAGE_FORMAT_STRING "POST /bot%s/sendMessage HTTP/1.1\r\n" \
+    "Host: " HOST_NAME "\r\n" \
+    "User-Agent: esp-idf/1.0 esp32\r\n" \
+    "Connection: close\r\n" \
+    "Content-Type: application/json\r\n" \
+    "Content-length: %i\r\n\r\n" \
+    "{\"chat_id\":%s,\"text\":\"%s\"}\r\n"
+
+typedef struct {
+    char bot_token[46];
+    int64_t update_id;
+    bool initialized;
+    esp_tls_cfg_t tls_cfg;
+} tg_config_t;
+
 
 static int https_send_request(char*, int, esp_tls_cfg_t, const char*, const char*);
 
 static jsmntok_t tokens[TOK_LEN];
-static char buf[4096];
-static char request[256]; // make sure the request fits this size because currently it's almost overflown
-static long update_id = -1;
+static char req_buf[4096];
+static char resp_buf[4096];
+static char request[1024]; // make sure the request fits this size because currently it's almost overflown
 
 static const char TAG[] = "tg";
+
+tg_config_t tg_config = {
+    .bot_token = "",
+    .update_id = -1,
+    .tls_cfg = {
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    },
+    .initialized = false,
+};
 
 #ifdef TG_DEBUG
 static char* token_type(jsmntype_t t) {
@@ -475,15 +499,19 @@ static void handle_updates(char* buf, int buf_size, char* update_handler(char*, 
                     .message = &message_buf
                 };
 
-                ESP_LOGI(TAG, "update %i / %i", i, size);
+                ESP_LOGI(TAG, "update %i / %i", i + 1, size);
                 if (parse_update(&update, buf, tokens, parsed_len, &i_tok)) {
                     buf[update.id->end] = '\0';
-                    update_id = atol(&buf[update.id->start]);
+                    tg_config.update_id = atol(&buf[update.id->start]);
 
                     char* resp = update_handler(buf, &update, open_queue, status_queue);
                     if (resp == NULL) continue;
 
-                    https_send_request()
+                    buf[update.message->chat->id->end] = '\0';
+                    int ret = tg_send_message(&buf[update.message->chat->id->start], resp);
+                    if (ret <= 0) {
+                        ESP_LOGE(TAG, "Failed sending message with code %i", ret);
+                    }
                 }
             }
             continue;
@@ -499,6 +527,7 @@ static void tg_parse(char* buf, int buf_len, char* update_handler(char*, tg_upda
     }
 
     for (int start_pos = 0; start_pos < buf_len; start_pos++) {
+        // Looking for response body
         if (strncmp(buf + start_pos, "\r\n\r\n", 4) == 0) {
             start_pos += 4;
             handle_updates(buf + start_pos, buf_len - start_pos, update_handler, open_queue, status_queue);
@@ -577,19 +606,47 @@ cleanup:
     return ret;
 }
 
-void tg_start(char* bot_token, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    esp_tls_cfg_t cfg = {
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
+int tg_send_message(char* chat_id, char* text) {
+    if (!tg_config.initialized) return ESP_FAIL;
+
+    sprintf(request, SEND_MESSAGE_FORMAT_STRING, tg_config.bot_token, sizeof("{\"chat_id\":,\"text\":\"\"}") - 1 + strlen(chat_id) + strlen(text), chat_id, text);
+    return https_send_request(resp_buf, sizeof(resp_buf), tg_config.tls_cfg, WEB_SERVER_URL, request);
+}
+
+int tg_get_messages(char* bot_token, int32_t update_id) {
+    if (!tg_config.initialized) return ESP_FAIL;
+
+    sprintf(request, GET_MESSAGES_FORMAT_STRING, bot_token, update_id + 1);
+    return https_send_request(req_buf, sizeof(req_buf), tg_config.tls_cfg, WEB_SERVER_URL, request);
+}
+
+esp_err_t tg_init(char* bot_token) {
+    if (tg_config.initialized) {
+        return ESP_FAIL;
+    }
+
+    strcpy(tg_config.bot_token, bot_token);
+    tg_config.initialized = true;
+
+    return ESP_OK;
+}
+
+void tg_deinit() {
+    tg_config.initialized = false;
+}
+
+void tg_start(char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    if (!tg_config.initialized) {
+        return;
+    }
 
     while (42) {
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
-        sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
-        int ret = https_send_request(buf, sizeof(buf), cfg, WEB_SERVER_URL, request);
+        int ret = tg_get_messages(tg_config.bot_token, tg_config.update_id);
         if (ret > 0) {
             int buf_size = ret;
-            tg_parse(buf, buf_size, update_handler, open_queue, status_queue);
+            tg_parse(req_buf, buf_size, update_handler, open_queue, status_queue);
         }
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
