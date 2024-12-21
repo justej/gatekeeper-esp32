@@ -402,7 +402,7 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int 
     return true;
 }
 
-static void handle_updates(char* buf, int buf_size, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static void handle_updates(char* buf, int buf_size, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmn_parser parser;
 
     jsmn_init(&parser);
@@ -480,7 +480,10 @@ static void handle_updates(char* buf, int buf_size, void update_handler(char*, t
                     buf[update.id->end] = '\0';
                     update_id = atol(&buf[update.id->start]);
 
-                    update_handler(buf, &update, open_queue, status_queue);
+                    char* resp = update_handler(buf, &update, open_queue, status_queue);
+                    if (resp == NULL) continue;
+
+                    https_send_request()
                 }
             }
             continue;
@@ -490,7 +493,7 @@ static void handle_updates(char* buf, int buf_size, void update_handler(char*, t
     }
 }
 
-static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static void tg_parse(char* buf, int buf_len, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     if (buf_len < 4) {
         return;
     }
@@ -574,7 +577,7 @@ cleanup:
     return ret;
 }
 
-void tg_start(char* bot_token, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+void tg_start(char* bot_token, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     esp_tls_cfg_t cfg = {
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
@@ -583,7 +586,6 @@ void tg_start(char* bot_token, void update_handler(char*, tg_update_t*, QueueHan
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
         sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
-
         int ret = https_send_request(buf, sizeof(buf), cfg, WEB_SERVER_URL, request);
         if (ret > 0) {
             int buf_size = ret;

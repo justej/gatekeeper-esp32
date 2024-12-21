@@ -12,10 +12,10 @@
 
 static const char TAG[] = "handler";
 
-typedef void (*message_handler_t)(char*, tg_message_t*, QueueHandle_t, QueueHandle_t);
+typedef char* (*message_handler_t)(const char* const, tg_message_t*, QueueHandle_t, QueueHandle_t);
 
 typedef struct {
-    char* command;
+    const char* const command;
     message_handler_t handler;
 } command_handler_t;
 
@@ -29,13 +29,14 @@ typedef struct {
 user_t admins[10] = { {.id = 842272533,} };
 user_t users[100] = { {.id = 552887516,} };
 
-static void open_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t delay = GK_DELAY_1_5_SECONDS;
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     puts("gate's opened");
+    return NULL;
 }
 
-static void status_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* status_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t delay;
     xQueuePeek(status_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     if (delay < 0) {
@@ -43,21 +44,24 @@ static void status_handler(char* buf, tg_message_t* message, QueueHandle_t open_
     } else {
         puts("gate's closed");
     }
+    return NULL;
 }
 
-static void lock_opened_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* lock_opened_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t delay = GK_DELAY_1_HOUR;
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     puts("gate's locked for 1 hour");
+    return NULL;
 }
 
-static void unlock_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* unlock_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t unlock_command = -1;
     xQueueSend(open_queue, &unlock_command, GK_OPEN_QUEUE_TIMEOUT);
     puts("gate's unlocked");
+    return NULL;
 }
 
-static void add_user_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* add_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -72,7 +76,7 @@ static void add_user_handler(char* buf, tg_message_t* message, QueueHandle_t ope
 
     if (unauthorized) {
         puts("unauthorized to add user");
-        return;
+        return NULL;
     }
 
     token = message->text;
@@ -82,7 +86,7 @@ static void add_user_handler(char* buf, tg_message_t* message, QueueHandle_t ope
     for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
         if (users[i].id == id) {
             puts("user exists");
-            return;
+            return NULL;
         }
         if (users[i].id == 0) {
             empty = i;
@@ -91,13 +95,14 @@ static void add_user_handler(char* buf, tg_message_t* message, QueueHandle_t ope
 
     if (empty >= 0) {
         users[empty].id = id;
-        return;
+        return NULL;
     }
 
     puts("too many users");
+    return NULL;
 }
 
-static void drop_user_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -112,7 +117,7 @@ static void drop_user_handler(char* buf, tg_message_t* message, QueueHandle_t op
 
     if (unauthorized) {
         puts("unauthorized to drop user");
-        return;
+        return NULL;
     }
 
     token = message->text;
@@ -122,12 +127,14 @@ static void drop_user_handler(char* buf, tg_message_t* message, QueueHandle_t op
         if (users[i].id == id) {
             users[i].id = 0;
             printf("dropped user %li", id);
-            return;
+            return NULL;
         }
     }
+
+    return NULL;
 }
 
-static void list_users_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -142,7 +149,7 @@ static void list_users_handler(char* buf, tg_message_t* message, QueueHandle_t o
 
     if (unauthorized) {
         puts("unauthorized to list users");
-        return;
+        return NULL;
     }
 
     for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
@@ -151,9 +158,11 @@ static void list_users_handler(char* buf, tg_message_t* message, QueueHandle_t o
             printf("id: %li, username: %s, first name: %s, last name: %s\n", u.id, u.username, u.first_name, u.last_name);
         }
     }
+
+    return NULL;
 }
 
-static void add_admin_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -168,7 +177,7 @@ static void add_admin_handler(char* buf, tg_message_t* message, QueueHandle_t op
 
     if (unauthorized) {
         puts("unauthorized to add admin");
-        return;
+        return NULL;
     }
 
     token = message->text;
@@ -178,7 +187,7 @@ static void add_admin_handler(char* buf, tg_message_t* message, QueueHandle_t op
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
         if (admins[i].id == id) {
             puts("admin exists");
-            return;
+            return NULL;
         }
         if (admins[i].id == 0) {
             empty = i;
@@ -187,13 +196,15 @@ static void add_admin_handler(char* buf, tg_message_t* message, QueueHandle_t op
 
     if (empty >= 0) {
         admins[empty].id = id;
-        return;
+        return NULL;
     }
 
     puts("too many admins");
+
+    return NULL;
 }
 
-static void drop_admin_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -208,7 +219,7 @@ static void drop_admin_handler(char* buf, tg_message_t* message, QueueHandle_t o
 
     if (unauthorized) {
         puts("unauthorized to drop admin");
-        return;
+        return NULL;
     }
 
     token = message->text;
@@ -224,19 +235,21 @@ static void drop_admin_handler(char* buf, tg_message_t* message, QueueHandle_t o
 
     if (count < 3) {
         puts("There should be at least two admins");
-        return;
+        return NULL;
     }
 
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
         if (admins[i].id == id) {
             admins[i].id = 0;
             printf("dropped admin %li\n", id);
-            return;
+            return NULL;
         }
     }
+
+    return NULL;
 }
 
-static void list_admins_handler(char* buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     long id;
     sscanf(&buf[token->start], "%li", &id);
@@ -251,7 +264,7 @@ static void list_admins_handler(char* buf, tg_message_t* message, QueueHandle_t 
 
     if (unauthorized) {
         puts("unauthorized to list admins");
-        return;
+        return NULL;
     }
 
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
@@ -260,6 +273,7 @@ static void list_admins_handler(char* buf, tg_message_t* message, QueueHandle_t 
             printf("id: %li, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
         }
     }
+    return NULL;
 }
 
 command_handler_t command_handlers[] = {
@@ -275,21 +289,22 @@ command_handler_t command_handlers[] = {
     {"/admins", list_admins_handler},
 };
 
-void gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+char* gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     tg_log_token(buf, "handling update", update->id);
 
     jsmntok_t* text = update->message->text;
-    if (text == NULL) return;
+    if (text == NULL) return NULL;
 
     int message_size = text->end - text->start;
     for (int i = 0; i < sizeof(command_handlers) / sizeof(command_handlers[0]); i++) {
         int command_size = strlen(command_handlers[i].command);
 
         if (!strncmp(command_handlers[i].command, &buf[text->start], command_size) && (command_size == message_size || buf[text->start + command_size] == ' ')) {
-            command_handlers[i].handler(buf, update->message, open_queue, status_queue);
-            return;
+            return command_handlers[i].handler(buf, update->message, open_queue, status_queue);
         }
     }
 
     ESP_LOGE(TAG, "unknown command %.*s", message_size, &buf[text->start]);
+
+    return NULL;
 }

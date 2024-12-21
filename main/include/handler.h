@@ -7,6 +7,6 @@
 #define GPIO_GATE_NUM GPIO_NUM_2
 #define GPIO_GATE_MASK (1 << GPIO_GATE_NUM)
 
-void gk_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t);
+char* gk_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t);
 
 #endif // _HANDLER_H_

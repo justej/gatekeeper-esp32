@@ -40,6 +40,6 @@ typedef struct {
 } tg_update_t;
 
 void tg_log_token(char* , char* , jsmntok_t* );
-void tg_start(char* , void (char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t, QueueHandle_t);
+void tg_start(char* , char* (char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t, QueueHandle_t);
 
 #endif // _TG_H_
