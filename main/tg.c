@@ -26,6 +26,8 @@
     "User-Agent: esp-idf/1.0 esp32\r\n" \
     "Connection: close\r\n\r\n"
 
+static int https_send_request(char*, int, esp_tls_cfg_t, const char*, const char*);
+
 static jsmntok_t tokens[TOK_LEN];
 static char buf[4096];
 static char request[256]; // make sure the request fits this size because currently it's almost overflown
@@ -502,7 +504,7 @@ static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_updat
     }
 }
 
-static int https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* web_server_url, const char *request) {
+static int https_send_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* web_server_url, const char* request) {
     esp_tls_t* tls = esp_tls_init();
     if (!tls) {
         ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
@@ -582,7 +584,7 @@ void tg_start(char* bot_token, void update_handler(char*, tg_update_t*, QueueHan
 
         sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
 
-        int ret = https_get_request(buf, sizeof(buf), cfg, WEB_SERVER_URL, request);
+        int ret = https_send_request(buf, sizeof(buf), cfg, WEB_SERVER_URL, request);
         if (ret > 0) {
             int buf_size = ret;
             tg_parse(buf, buf_size, update_handler, open_queue, status_queue);
