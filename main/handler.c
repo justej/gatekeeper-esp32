@@ -275,7 +275,7 @@ command_handler_t command_handlers[] = {
     {"/admins", list_admins_handler},
 };
 
-void handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+void gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     tg_log_token(buf, "handling update", update->id);
 
     jsmntok_t* text = update->message->text;

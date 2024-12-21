@@ -502,17 +502,15 @@ static void tg_parse(char* buf, int buf_len, void update_handler(char*, tg_updat
     }
 }
 
-static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* bot_token, void handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static int https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const char* web_server_url, const char *request) {
     esp_tls_t* tls = esp_tls_init();
     if (!tls) {
         ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
-        return;
+        return ESP_FAIL;
     }
 
-    sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
-
     int ret;
-    if (esp_tls_conn_http_new_sync(WEB_SERVER_URL, &cfg, tls) == 1) {
+    if (esp_tls_conn_http_new_sync(web_server_url, &cfg, tls) == 1) {
         ESP_LOGI(TAG, "Connection established...");
     } else {
         ESP_LOGE(TAG, "Connection failed...");
@@ -528,10 +526,11 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
     }
 
     size_t written_bytes = 0;
+    size_t request_len = strlen(request);
     do {
         ret = esp_tls_conn_write(tls,
             request + written_bytes,
-            strlen(request) - written_bytes);
+            request_len - written_bytes);
         if (ret >= 0) {
             ESP_LOGI(TAG, "%d bytes written", ret);
             written_bytes += ret;
@@ -539,7 +538,7 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
             ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
             goto cleanup;
         }
-    } while (written_bytes < strlen(request));
+    } while (written_bytes < request_len);
 
     ESP_LOGI(TAG, "Reading HTTP response...");
     do {
@@ -565,15 +564,15 @@ static void https_get_request(char* buf, int buf_size, esp_tls_cfg_t cfg, const 
         }
         puts("\n\n\n"); // JSON output doesn't have a newline at end
 #endif
-
-        tg_parse(buf, ret, handler, open_queue, status_queue);
+        break; // comment out this line in case of stream processing of response
     } while (1);
 
 cleanup:
     esp_tls_conn_destroy(tls);
+    return ret;
 }
 
-void tg_start(char* token, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+void tg_start(char* bot_token, void update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     esp_tls_cfg_t cfg = {
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
@@ -581,7 +580,13 @@ void tg_start(char* token, void update_handler(char*, tg_update_t*, QueueHandle_
     while (42) {
         ESP_LOGI(TAG, "Minimum free heap size: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
 
-        https_get_request(buf, sizeof(buf), cfg, token, update_handler, open_queue, status_queue);
+        sprintf(request, GET_REQUEST_HEADERS_FORMAT_STRING, bot_token, update_id + 1);
+
+        int ret = https_get_request(buf, sizeof(buf), cfg, WEB_SERVER_URL, request);
+        if (ret > 0) {
+            int buf_size = ret;
+            tg_parse(buf, buf_size, update_handler, open_queue, status_queue);
+        }
 
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
