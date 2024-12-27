@@ -5,21 +5,15 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "handler.h"
-#include "secrets.h"
+#include "users.h"
 
 #define GK_OPEN_QUEUE_TIMEOUT pdMS_TO_TICKS(10000)
 #define GK_DELAY_1_HOUR pdMS_TO_TICKS(3600 * 1000)
 #define GK_DELAY_1_5_SECONDS pdMS_TO_TICKS(1500)
 
-#ifndef ADMINS_INITIALIZER
-#define ADMINS_INITIALIZER {}
-#endif
-
-#ifndef USERS_INITIALIZER
-#define USERS_INITIALIZER {}
-#endif
-
 static const char TAG[] = "handler";
+
+static char resp_buf[512];
 
 typedef char* (*message_handler_t)(const char* const, tg_message_t*, QueueHandle_t, QueueHandle_t);
 
@@ -27,31 +21,6 @@ typedef struct {
     const char* const command;
     message_handler_t handler;
 } command_handler_t;
-
-typedef struct {
-    int64_t id;
-    char username[32];
-    char first_name[32];
-    char last_name[32];
-} user_t;
-
-static user_t admins[10] = ADMINS_INITIALIZER;
-static user_t users[100] = USERS_INITIALIZER;
-static char resp_buf[512];
-
-bool is_admin(int64_t id) {
-    if (id == 0) {
-        return false;
-    }
-
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            return true;
-        }
-    }
-
-    return false;
-}
 
 static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t delay = GK_DELAY_1_5_SECONDS;
@@ -94,22 +63,16 @@ static char* add_user_handler(const char* const buf, tg_message_t* message, Queu
     token = message->text;
     sscanf(&buf[token->start], "/adduser %lli", &id);
 
-    int empty = -1;
-    for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
-        if (users[i].id == id) {
-            return "User exists";
-        }
-        if (users[i].id == 0) {
-            empty = i;
-        }
-    }
-
-    if (empty >= 0) {
-        users[empty].id = id;
+    switch (user_add(id)) {
+    case USER_OK:
         return "Added user";
+    case USER_ALREADY_EXIST:
+        return "User exists";
+    case USER_NO_FREE_SPACE:
+        return "Failed to add user: too many users";
+    default:
+        return "Unknown error";
     }
-
-    return "Failed to add user: too many users";
 }
 
 static char* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -124,15 +87,15 @@ static char* drop_user_handler(const char* const buf, tg_message_t* message, Que
     token = message->text;
     sscanf(&buf[token->start], "/dropuser %lli", &id);
 
-    for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
-        if (users[i].id == id) {
-            users[i].id = 0;
-            sprintf(resp_buf, "Dropped user %lli", id);
-            return resp_buf;
-        }
+    switch (user_drop(id)) {
+    case USER_OK:
+        sprintf(resp_buf, "Dropped user %lli", id);
+        return resp_buf;
+    case USER_NOT_FOUND:
+        return "User not found";
+    default:
+        return "Unknown error";
     }
-
-    return "User not found";
 }
 
 static char* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -144,16 +107,7 @@ static char* list_users_handler(const char* const buf, tg_message_t* message, Qu
         return "Unauthorized to list users";
     }
 
-    uint_fast16_t len = 1;
-    strcpy(resp_buf, "No users");
-    for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
-        if (users[i].id != 0) {
-            user_t u = users[i];
-            len += sprintf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", u.id, u.username, u.first_name, u.last_name);
-        }
-    }
-
-    return resp_buf;
+    return users_list(resp_buf, sizeof(resp_buf));
 }
 
 static char* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -168,22 +122,18 @@ static char* add_admin_handler(const char* const buf, tg_message_t* message, Que
     token = message->text;
     sscanf(&buf[token->start], "/addadmin %lli", &id);
 
-    int empty = -1;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            return "Admin exists";
-        }
-        if (admins[i].id == 0) {
-            empty = i;
-        }
-    }
-
-    if (empty >= 0) {
-        admins[empty].id = id;
+    switch (admin_add(id)) {
+    case USER_OK:
         return "Added admin";
+    case USER_ALREADY_EXIST:
+        return "Admin exists";
+    case USER_NO_FREE_SPACE:
+        return "Failed to add admin: too many admins";
+    case USER_WRONG_ID:
+        return "Wrong ID";
+    default:
+        return "Unknown error";
     }
-
-    return "Too many admins";
 }
 
 static char* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -198,27 +148,19 @@ static char* drop_admin_handler(const char* const buf, tg_message_t* message, Qu
     token = message->text;
     sscanf(&buf[token->start], "/dropadmin %lli", &id);
 
-    int count = 0;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id != 0 && admins[i].id != id) {
-            count++;
-            break;
-        }
+    if (admin_count() < 2) {
+        return "At least one admin should remain";
     }
 
-    if (count < 3) {
-        return "There should be at least two admins";
+    switch (admin_drop(id)) {
+    case USER_OK:
+        sprintf(resp_buf, "Dropped admin %lli", id);
+        return resp_buf;
+    case USER_NOT_FOUND:
+        return "Admin not found";
+    default:
+        return "Unknown error";
     }
-
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            admins[i].id = 0;
-            sprintf(resp_buf, "Dropped admin %lli\n", id);
-            return resp_buf;
-        }
-    }
-
-    return "Admin not found";
 }
 
 static char* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -230,16 +172,7 @@ static char* list_admins_handler(const char* const buf, tg_message_t* message, Q
         return "Unauthorized to list admins";
     }
 
-    uint_fast16_t len = 1;
-    strcpy(resp_buf, "No admins");
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id != 0) {
-            user_t a = admins[i];
-            len += sprintf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
-        }
-    }
-
-    return resp_buf;
+    return admins_list(resp_buf, sizeof(resp_buf));
 }
 
 command_handler_t command_handlers[] = {
