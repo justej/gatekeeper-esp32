@@ -53,14 +53,15 @@ static char* unlock_handler(const char* const buf, tg_message_t* message, QueueH
 
 static char* add_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to add user";
     }
 
     token = message->text;
+    int64_t id = 0;
     sscanf(&buf[token->start], "/adduser %lli", &id);
 
     switch (user_add(id)) {
@@ -77,14 +78,15 @@ static char* add_user_handler(const char* const buf, tg_message_t* message, Queu
 
 static char* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to drop user";
     }
 
     token = message->text;
+    int64_t id = 0;
     sscanf(&buf[token->start], "/dropuser %lli", &id);
 
     switch (user_drop(id)) {
@@ -100,10 +102,10 @@ static char* drop_user_handler(const char* const buf, tg_message_t* message, Que
 
 static char* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to list users";
     }
 
@@ -112,14 +114,15 @@ static char* list_users_handler(const char* const buf, tg_message_t* message, Qu
 
 static char* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to add admin";
     }
 
     token = message->text;
+    int64_t id = 0;
     sscanf(&buf[token->start], "/addadmin %lli", &id);
 
     switch (admin_add(id)) {
@@ -138,14 +141,15 @@ static char* add_admin_handler(const char* const buf, tg_message_t* message, Que
 
 static char* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to drop admin";
     }
 
     token = message->text;
+    int64_t id = 0;
     sscanf(&buf[token->start], "/dropadmin %lli", &id);
 
     if (admin_count() < 2) {
@@ -165,10 +169,10 @@ static char* drop_admin_handler(const char* const buf, tg_message_t* message, Qu
 
 static char* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    int64_t id = 0;
-    sscanf(&buf[token->start], "%lli", &id);
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
 
-    if (!is_admin(id)) {
+    if (!is_admin(admin_id)) {
         return "Unauthorized to list admins";
     }
 
