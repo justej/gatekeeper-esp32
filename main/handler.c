@@ -20,15 +20,28 @@ typedef struct {
 } command_handler_t;
 
 typedef struct {
-    long id;
-    char username[30];
-    char first_name[30];
-    char last_name[30];
+    int64_t id;
+    char username[32];
+    char first_name[32];
+    char last_name[32];
 } user_t;
 
 static user_t admins[10] = { {.id = 842272533,} };
 static user_t users[100] = { {.id = 552887516,} };
 static char resp_buf[512];
+
+bool is_admin(int64_t id) {
+    if (id == 0) {
+        return false;
+    }
+
+    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
+        if (admins[i].id == id) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     int32_t delay = GK_DELAY_1_5_SECONDS;
@@ -61,23 +74,15 @@ static char* unlock_handler(const char* const buf, tg_message_t* message, QueueH
 
 static char* add_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to add user";
     }
 
     token = message->text;
-    sscanf(&buf[token->start], "/adduser %li", &id);
+    sscanf(&buf[token->start], "/adduser %lli", &id);
 
     int empty = -1;
     for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
@@ -99,28 +104,20 @@ static char* add_user_handler(const char* const buf, tg_message_t* message, Queu
 
 static char* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to drop user";
     }
 
     token = message->text;
-    sscanf(&buf[token->start], "/dropuser %li", &id);
+    sscanf(&buf[token->start], "/dropuser %lli", &id);
 
     for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
         if (users[i].id == id) {
             users[i].id = 0;
-            sprintf(resp_buf, "Dropped user %li", id);
+            sprintf(resp_buf, "Dropped user %lli", id);
             return resp_buf;
         }
     }
@@ -130,26 +127,19 @@ static char* drop_user_handler(const char* const buf, tg_message_t* message, Que
 
 static char* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to list users";
     }
 
     uint_fast16_t len = 1;
+    strcpy(resp_buf, "No users");
     for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
         if (users[i].id != 0) {
             user_t u = users[i];
-            len += sprintf(resp_buf + len - 1, "id: %li, username: %s, first name: %s, last name: %s\n", u.id, u.username, u.first_name, u.last_name);
+            len += sprintf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", u.id, u.username, u.first_name, u.last_name);
         }
     }
 
@@ -158,23 +148,15 @@ static char* list_users_handler(const char* const buf, tg_message_t* message, Qu
 
 static char* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to add admin";
     }
 
     token = message->text;
-    sscanf(&buf[token->start], "/addadmin %li", &id);
+    sscanf(&buf[token->start], "/addadmin %lli", &id);
 
     int empty = -1;
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
@@ -196,23 +178,15 @@ static char* add_admin_handler(const char* const buf, tg_message_t* message, Que
 
 static char* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to drop admin";
     }
 
     token = message->text;
-    sscanf(&buf[token->start], "/dropadmin %li", &id);
+    sscanf(&buf[token->start], "/dropadmin %lli", &id);
 
     int count = 0;
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
@@ -229,7 +203,7 @@ static char* drop_admin_handler(const char* const buf, tg_message_t* message, Qu
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
         if (admins[i].id == id) {
             admins[i].id = 0;
-            sprintf(resp_buf, "Dropped admin %li\n", id);
+            sprintf(resp_buf, "Dropped admin %lli\n", id);
             return resp_buf;
         }
     }
@@ -239,26 +213,19 @@ static char* drop_admin_handler(const char* const buf, tg_message_t* message, Qu
 
 static char* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
-    long id;
-    sscanf(&buf[token->start], "%li", &id);
+    int64_t id = 0;
+    sscanf(&buf[token->start], "%lli", &id);
 
-    bool unauthorized = true;
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
-        if (admins[i].id == id) {
-            unauthorized = false;
-            break;
-        }
-    }
-
-    if (unauthorized) {
+    if (!is_admin(id)) {
         return "Unauthorized to list admins";
     }
 
     uint_fast16_t len = 1;
+    strcpy(resp_buf, "No admins");
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
         if (admins[i].id != 0) {
             user_t a = admins[i];
-            len += printf(resp_buf + len - 1, "id: %li, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
+            len += printf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
         }
     }
     return resp_buf;
