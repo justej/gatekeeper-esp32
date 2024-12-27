@@ -5,10 +5,19 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "handler.h"
+#include "secrets.h"
 
 #define GK_OPEN_QUEUE_TIMEOUT pdMS_TO_TICKS(10000)
 #define GK_DELAY_1_HOUR pdMS_TO_TICKS(3600 * 1000)
 #define GK_DELAY_1_5_SECONDS pdMS_TO_TICKS(1500)
+
+#ifndef ADMINS_INITIALIZER
+#define ADMINS_INITIALIZER {}
+#endif
+
+#ifndef USERS_INITIALIZER
+#define USERS_INITIALIZER {}
+#endif
 
 static const char TAG[] = "handler";
 
@@ -26,8 +35,8 @@ typedef struct {
     char last_name[32];
 } user_t;
 
-static user_t admins[10] = { {.id = 842272533,} };
-static user_t users[100] = { {.id = 552887516,} };
+static user_t admins[10] = ADMINS_INITIALIZER;
+static user_t users[100] = USERS_INITIALIZER;
 static char resp_buf[512];
 
 bool is_admin(int64_t id) {
@@ -40,6 +49,7 @@ bool is_admin(int64_t id) {
             return true;
         }
     }
+
     return false;
 }
 
@@ -225,9 +235,10 @@ static char* list_admins_handler(const char* const buf, tg_message_t* message, Q
     for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
         if (admins[i].id != 0) {
             user_t a = admins[i];
-            len += printf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
+            len += sprintf(resp_buf + len - 1, "id: %lli, username: %s, first name: %s, last name: %s\n", a.id, a.username, a.first_name, a.last_name);
         }
     }
+
     return resp_buf;
 }
 

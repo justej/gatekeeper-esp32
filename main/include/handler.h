@@ -8,5 +8,6 @@
 #define GPIO_GATE_MASK (1 << GPIO_GATE_NUM)
 
 char* gk_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t);
+bool is_admin(int64_t id);
 
 #endif // _HANDLER_H_
