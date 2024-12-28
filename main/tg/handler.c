@@ -65,11 +65,11 @@ static char* add_user_handler(const char* const buf, tg_message_t* message, Queu
     sscanf(&buf[token->start], "/adduser %lli", &id);
 
     switch (user_add(id)) {
-    case USER_OK:
+    case ESP_OK:
         return "Added user";
-    case USER_ALREADY_EXIST:
+    case ESP_ERR_USR_ALREADY_EXISTS:
         return "User exists";
-    case USER_NO_FREE_SPACE:
+    case ESP_ERR_USR_NO_SPACE:
         return "Failed to add user: too many users";
     default:
         return "Unknown error";
@@ -90,10 +90,10 @@ static char* drop_user_handler(const char* const buf, tg_message_t* message, Que
     sscanf(&buf[token->start], "/dropuser %lli", &id);
 
     switch (user_drop(id)) {
-    case USER_OK:
+    case ESP_OK:
         sprintf(resp_buf, "Dropped user %lli", id);
         return resp_buf;
-    case USER_NOT_FOUND:
+    case ESP_ERR_NOT_FOUND:
         return "User not found";
     default:
         return "Unknown error";
@@ -126,13 +126,13 @@ static char* add_admin_handler(const char* const buf, tg_message_t* message, Que
     sscanf(&buf[token->start], "/addadmin %lli", &id);
 
     switch (admin_add(id)) {
-    case USER_OK:
+    case ESP_OK:
         return "Added admin";
-    case USER_ALREADY_EXIST:
+    case ESP_ERR_USR_ALREADY_EXISTS:
         return "Admin exists";
-    case USER_NO_FREE_SPACE:
+    case ESP_ERR_USR_NO_SPACE:
         return "Failed to add admin: too many admins";
-    case USER_WRONG_ID:
+    case ESP_ERR_USR_WRONG_ID:
         return "Wrong ID";
     default:
         return "Unknown error";
@@ -157,10 +157,10 @@ static char* drop_admin_handler(const char* const buf, tg_message_t* message, Qu
     }
 
     switch (admin_drop(id)) {
-    case USER_OK:
+    case ESP_OK:
         sprintf(resp_buf, "Dropped admin %lli", id);
         return resp_buf;
-    case USER_NOT_FOUND:
+    case ESP_ERR_NOT_FOUND:
         return "Admin not found";
     default:
         return "Unknown error";

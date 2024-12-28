@@ -15,6 +15,7 @@
 #include "tg.h"
 #include "handler.h"
 #include "gate_control.h"
+#include "users.h"
 
 static const char TAG[] = "gatekeeper";
 
@@ -59,6 +60,7 @@ void app_main(void) {
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");
         ESP_ERROR_CHECK(update_time_from_nvs());
+        ESP_ERROR_CHECK(load_users());
     }
 
     const esp_timer_create_args_t nvs_update_timer_args = {

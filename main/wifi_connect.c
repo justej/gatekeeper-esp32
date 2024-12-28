@@ -2,7 +2,7 @@
 #include "wifi_connect.h"
 #include "esp_log.h"
 
-#define NETIF_DESC_STA "gatekeeper_netif_sta"
+#define NETIF_DESC_STA "gk_netif_sta"
 #define WIFI_CONN_MAX_RETRY 5
 
 static void on_wifi_connect(void *esp_netif, esp_event_base_t event_base, int32_t event_id, void *event_data);

@@ -2,12 +2,11 @@
 #define _USERS_H_
 
 #include <stdint.h>
+#include "esp_err.h"
 
-#define USER_OK 0
-#define USER_ALREADY_EXIST (-1)
-#define USER_NO_FREE_SPACE (-2)
-#define USER_NOT_FOUND (-3)
-#define USER_WRONG_ID (-4)
+#define ESP_ERR_USR_ALREADY_EXISTS (-1)
+#define ESP_ERR_USR_NO_SPACE (-2)
+#define ESP_ERR_USR_WRONG_ID (-3)
 
 typedef struct {
     int64_t id; // 52-bit value
@@ -16,13 +15,14 @@ typedef struct {
     char last_name[32];
 } user_t;
 
+esp_err_t load_users();
 bool is_admin(int64_t id);
-int_fast8_t user_add(int64_t id);
-int_fast8_t user_drop(int64_t id);
+esp_err_t user_add(int64_t id);
+esp_err_t user_drop(int64_t id);
 char* users_list(char* buf, size_t buf_size);
 size_t user_count();
-int_fast8_t admin_add(int64_t id);
-int_fast8_t admin_drop(int64_t id);
+esp_err_t admin_add(int64_t id);
+esp_err_t admin_drop(int64_t id);
 char* admins_list(char* buf, size_t buf_size);
 size_t admin_count();
 

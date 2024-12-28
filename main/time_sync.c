@@ -6,7 +6,7 @@
 
 #include "time_sync.h"
 
-#define STORAGE_NAMESPACE "nvs"
+#define STORAGE_NAMESPACE "time"
 
 static char TAG[] = "time-sync";
 
