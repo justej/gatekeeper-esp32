@@ -5,11 +5,10 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "handler.h"
+#include "gate_control.h"
 #include "users.h"
 
 #define GK_OPEN_QUEUE_TIMEOUT pdMS_TO_TICKS(10000)
-#define GK_DELAY_1_HOUR pdMS_TO_TICKS(3600 * 1000)
-#define GK_DELAY_1_5_SECONDS pdMS_TO_TICKS(1500)
 
 static const char TAG[] = "handler";
 
@@ -23,7 +22,7 @@ typedef struct {
 } command_handler_t;
 
 static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    int32_t delay = GK_DELAY_1_5_SECONDS;
+    int32_t delay = cfg_get_gate_open_duration();
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been opened";
 }
@@ -40,7 +39,7 @@ static char* status_handler(const char* const buf, tg_message_t* message, QueueH
 }
 
 static char* lock_opened_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    int32_t delay = GK_DELAY_1_HOUR;
+    int32_t delay = cfg_get_gate_lock_duration();
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been locked for 1 hour";
 }
@@ -179,6 +178,136 @@ static char* list_admins_handler(const char* const buf, tg_message_t* message, Q
     return admins_list(resp_buf, sizeof(resp_buf));
 }
 
+static char* gate_poll_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        return "Unauthorized to list admins";
+    }
+
+    token = message->text;
+    uint32_t period = 0;
+    sscanf(&buf[token->start], "/cfggatepoll %lu", &period);
+
+    if (period == 0) {
+        sprintf(resp_buf, "Gate poll: %li ms", pdTICKS_TO_MS(cfg_get_gate_poll()));
+    } else {
+        if (cfg_set_gate_poll(pdMS_TO_TICKS(period)) == ESP_OK) {
+            sprintf(resp_buf, "Gate poll period set %lu ms", period);
+        } else {
+            return "Failed to set duration";
+        }
+    }
+
+    return resp_buf;
+}
+
+static char* open_pulse_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        return "Unauthorized to list admins";
+    }
+
+    token = message->text;
+    uint32_t duration = 0;
+    sscanf(&buf[token->start], "/cfgopenpulseduration %lu", &duration);
+
+    if (duration == 0) {
+        sprintf(resp_buf, "Gate open pulse duration: %li ms", pdTICKS_TO_MS(cfg_get_gate_open_pulse_duration()));
+    } else {
+        if (cfg_set_gate_open_pulse_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+            sprintf(resp_buf, "Gate open pulse duration set %lu ms", duration);
+        } else {
+            return "Failed to set duration";
+        }
+    }
+
+    return resp_buf;
+}
+
+static char* open_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        return "Unauthorized to list admins";
+    }
+
+    token = message->text;
+    uint32_t duration = 0;
+    sscanf(&buf[token->start], "/cfgopenduration %lu", &duration);
+
+    if (duration == 0) {
+        sprintf(resp_buf, "Gate open duration: %li ms", pdTICKS_TO_MS(cfg_get_gate_open_duration()));
+    } else {
+        if (cfg_set_gate_open_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+            sprintf(resp_buf, "Gate open duration set %lu ms", duration);
+        } else {
+            return "Failed to set duration";
+        }
+    }
+
+    return resp_buf;
+}
+
+static char* lock_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        return "Unauthorized to list admins";
+    }
+
+    token = message->text;
+    uint32_t duration = 0;
+    sscanf(&buf[token->start], "/cfglockduration %lu", &duration);
+
+    if (duration == 0) {
+        sprintf(resp_buf, "Gate lock duration: %lu ms", pdTICKS_TO_MS(cfg_get_gate_lock_duration()));
+    } else {
+        if (cfg_set_gate_lock_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+            sprintf(resp_buf, "Gate lock opened duration set %lu ms", duration);
+        } else {
+            return "Failed to set duration";
+        }
+    }
+
+    return resp_buf;
+}
+
+static char* open_level_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        return "Unauthorized to list admins";
+    }
+
+    token = message->text;
+    uint32_t level = 0;
+    sscanf(&buf[token->start], "/cfgopenlevel %lu", &level);
+
+    if (token->end - token->start <= sizeof("/cfgopenlevel")) {
+        sprintf(resp_buf, "Gate open level: %s", cfg_get_open_gate_level() ? "high" : "low");
+    } else {
+        if (cfg_set_open_gate_level(level) == ESP_OK) {
+            sprintf(resp_buf, "Open level set %s", level ? "high" : "low");
+        } else {
+            return "Failed to set level";
+        }
+    }
+
+    return resp_buf;
+}
+
 command_handler_t command_handlers[] = {
     {"/open", open_handler},
     {"/status", status_handler},
@@ -190,6 +319,11 @@ command_handler_t command_handlers[] = {
     {"/addadmin", add_admin_handler},
     {"/dropadmin", drop_admin_handler},
     {"/admins", list_admins_handler},
+    {"/cfggatepoll", gate_poll_handler},
+    {"/cfgopenpulseduration", open_pulse_duration_handler},
+    {"/cfgopenduration", open_duration_handler},
+    {"/cfglockduration", lock_duration_handler},
+    {"/cfgopenlevel", open_level_handler},
 };
 
 char* gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
