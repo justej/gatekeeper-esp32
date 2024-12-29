@@ -176,6 +176,7 @@ void startGateControl(QueueHandle_t open_queue, QueueHandle_t status_queue) {
         }
 
         gpio_set_level(GPIO_GATE_NUM, level);
+        gpio_set_level(GPIO_LED_NUM, level);
         xQueueOverwrite(status_queue, &diff);
     }
 }

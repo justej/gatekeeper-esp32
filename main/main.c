@@ -33,14 +33,6 @@ static void gatekeeper_telegram_task(void* pvparameters) {
 }
 
 void app_main(void) {
-    gpio_config_t gate_gpio = {
-        .pin_bit_mask = GPIO_GATE_MASK,
-        .pull_up_en = true,
-        .pull_down_en = false,
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    gpio_config(&gate_gpio);
-
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -61,7 +53,20 @@ void app_main(void) {
         ESP_LOGI(TAG, "Updating time from NVS");
         ESP_ERROR_CHECK(update_time_from_nvs());
         ESP_ERROR_CHECK(load_users());
+        ESP_ERROR_CHECK(load_gate_config());
     }
+
+    gpio_config_t gate_gpio = {
+        .pin_bit_mask = GPIO_GATE_MASK,
+        .pull_up_en = true,
+        .pull_down_en = false,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&gate_gpio);
+
+    uint32_t level = !cfg_get_open_gate_level();
+    gpio_set_level(GPIO_GATE_NUM, level);
+    gpio_set_level(GPIO_LED_NUM, level);
 
     const esp_timer_create_args_t nvs_update_timer_args = {
         .callback = (void*)&fetch_and_store_time_in_nvs,
