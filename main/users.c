@@ -112,6 +112,24 @@ bool is_admin(int64_t id) {
     return false;
 }
 
+bool is_user(int64_t id) {
+    if (id == 0) {
+        return false;
+    }
+
+    for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
+        if (users[i].id == id) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool is_authorized(int64_t id) {
+    return is_admin(id) || is_user(id);
+}
+
 esp_err_t user_add(int64_t id) {
     return add(id, users, sizeof(users) / sizeof(users[0]));
 }

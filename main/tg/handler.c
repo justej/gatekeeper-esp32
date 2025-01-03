@@ -22,12 +22,28 @@ typedef struct {
 } command_handler_t;
 
 static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
     int32_t delay = cfg_get_gate_open_duration();
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been opened";
 }
 
 static char* status_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
     int32_t delay;
     xQueuePeek(status_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     if (delay < 0) {
@@ -39,12 +55,28 @@ static char* status_handler(const char* const buf, tg_message_t* message, QueueH
 }
 
 static char* lock_opened_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
     int32_t delay = cfg_get_gate_lock_duration();
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been locked for 1 hour";
 }
 
 static char* unlock_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
     int32_t unlock_command = -1;
     xQueueSend(open_queue, &unlock_command, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been unlocked";

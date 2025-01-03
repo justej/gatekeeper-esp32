@@ -17,6 +17,8 @@ typedef struct {
 
 esp_err_t load_users();
 bool is_admin(int64_t id);
+bool is_user(int64_t id);
+bool is_authorized(int64_t id);
 esp_err_t user_add(int64_t id);
 esp_err_t user_drop(int64_t id);
 char* users_list(char* buf, size_t buf_size);
