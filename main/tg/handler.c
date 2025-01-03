@@ -47,7 +47,10 @@ static char* status_handler(const char* const buf, tg_message_t* message, QueueH
     int32_t delay;
     xQueuePeek(status_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
     if (delay < 0) {
-        sprintf(resp_buf, "Gate status: %li seconds left till closing\n", pdTICKS_TO_MS(-delay) / 1000);
+        int32_t seconds_left = pdTICKS_TO_MS(-delay) / 1000;
+        int32_t min = seconds_left / 60;
+        int32_t sec = seconds_left % 60;
+        sprintf(resp_buf, "Gate status: %li m %li s left till closing\n", min, sec);
         return resp_buf;
     } else {
         return "Gate is closed";
@@ -65,7 +68,9 @@ static char* lock_opened_handler(const char* const buf, tg_message_t* message, Q
 
     int32_t delay = cfg_get_gate_lock_duration();
     xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
-    return "Gate has been locked for 1 hour";
+    int32_t min = ((pdTICKS_TO_MS(delay) / 1000) + 30) / 60;
+    sprintf(resp_buf, "Gate has been locked for %li minutes\n", min);
+    return resp_buf;
 }
 
 static char* unlock_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -216,7 +221,7 @@ static char* gate_poll_handler(const char* const buf, tg_message_t* message, Que
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
+        return "Unauthorized to set duration";
     }
 
     token = message->text;
@@ -242,7 +247,7 @@ static char* open_pulse_duration_handler(const char* const buf, tg_message_t* me
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
+        return "Unauthorized to set duration";
     }
 
     token = message->text;
@@ -268,7 +273,7 @@ static char* open_duration_handler(const char* const buf, tg_message_t* message,
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
+        return "Unauthorized to set duration";
     }
 
     token = message->text;
@@ -294,7 +299,7 @@ static char* lock_duration_handler(const char* const buf, tg_message_t* message,
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
+        return "Unauthorized to set duration";
     }
 
     token = message->text;
@@ -320,7 +325,7 @@ static char* open_level_handler(const char* const buf, tg_message_t* message, Qu
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
+        return "Unauthorized to set duration";
     }
 
     token = message->text;
