@@ -52,9 +52,10 @@ void app_main(void) {
     if (esp_reset_reason() == ESP_RST_POWERON) {
         ESP_LOGI(TAG, "Updating time from NVS");
         ESP_ERROR_CHECK(update_time_from_nvs());
-        ESP_ERROR_CHECK(load_users());
-        ESP_ERROR_CHECK(load_gate_config());
     }
+
+    ESP_ERROR_CHECK(load_users());
+    ESP_ERROR_CHECK(load_gate_config());
 
     gpio_config_t gate_gpio = {
         .pin_bit_mask = GPIO_GATE_MASK,
