@@ -21,6 +21,21 @@ typedef struct {
     message_handler_t handler;
 } command_handler_t;
 
+static char* start_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "You're not authorized. Contact house committee";
+    }
+
+    int32_t min = ((pdTICKS_TO_MS(cfg_get_gate_lock_duration()) / 1000) + 30) / 60;
+    sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open the gate (both upper and lower)\n- open and lock opened the gate for %li minutes. Don't forget to unlock it when you're done", min);
+
+    return resp_buf;
+}
+
 static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
@@ -346,6 +361,7 @@ static char* open_level_handler(const char* const buf, tg_message_t* message, Qu
 }
 
 command_handler_t command_handlers[] = {
+    {"/start", start_handler},
     {"/open", open_handler},
     {"/status", status_handler},
     {"/lockopened", lock_opened_handler},
