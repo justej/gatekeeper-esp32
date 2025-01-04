@@ -14,7 +14,7 @@ typedef struct {
     uint32_t gate_open_pulse_duration;
     uint32_t gate_open_duration;
     uint32_t gate_lock_duration;
-    uint32_t open_gate_level;
+    uint32_t gate_control_levels; // levels used to control upper and lower gates
 } gate_control_config_t;
 
 extern QueueHandle_t gk_open_queue;

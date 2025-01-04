@@ -65,7 +65,8 @@ void app_main(void) {
     gpio_config(&gate_gpio);
 
     uint32_t level = !cfg_get_open_gate_level();
-    gpio_set_level(GPIO_GATE_NUM, level);
+    gpio_set_level(GPIO_GATE_UPPER_NUM, level);
+    gpio_set_level(GPIO_GATE_LOWER_NUM, level);
     gpio_set_level(GPIO_LED_NUM, level);
 
     const esp_timer_create_args_t nvs_update_timer_args = {
