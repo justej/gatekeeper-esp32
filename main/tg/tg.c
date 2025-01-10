@@ -116,7 +116,6 @@ static void tg_log(char* buf, tg_update_t* update) {
 void tg_log_token(char* buf, char* key, jsmntok_t* token) {
     if (token == NULL) return;
 
-    buf[token->end] = '\0';
     printf("%s: %s\n", key, &buf[token->start]);
 }
 
@@ -187,6 +186,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_int(buf, &tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 user->id = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -199,6 +199,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 user->first_name = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -211,6 +212,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 user->last_name = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -223,6 +225,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 user->username = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -235,6 +238,7 @@ static bool parse_user(tg_user_t* user, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_bool(buf, &tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 user->is_bot = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -264,6 +268,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_int(buf, &tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 chat->id = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -276,6 +281,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 chat->type = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -288,6 +294,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 chat->first_name = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -300,6 +307,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 chat->last_name = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -312,6 +320,7 @@ static bool parse_chat(tg_chat_t* chat, char* buf, jsmntok_t* tokens, int parsed
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 chat->username = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -341,6 +350,7 @@ static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, i
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_int(buf, &tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 message->id = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -373,6 +383,7 @@ static bool parse_message(tg_message_t* message, char* buf, jsmntok_t* tokens, i
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_str(&tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 message->text = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -402,6 +413,7 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int 
             (*i_tok)++;
             __JSMNLOG(buf, tokens, *i_tok);
             if (jsmn_is_int(buf, &tokens[*i_tok])) {
+                buf[tokens[*i_tok].end] = '\0';
                 update->id = &tokens[*i_tok];
                 (*i_tok)++;
                 continue;
@@ -501,13 +513,11 @@ static void handle_updates(char* buf, int buf_size, char* update_handler(char*, 
 
                 ESP_LOGI(TAG, "update %i / %i", i + 1, size);
                 if (parse_update(&update, buf, tokens, parsed_len, &i_tok)) {
-                    buf[update.id->end] = '\0';
                     tg_config.update_id = atol(&buf[update.id->start]);
 
                     char* resp = update_handler(buf, &update, open_queue, status_queue);
                     if (resp == NULL) continue;
 
-                    buf[update.message->chat->id->end] = '\0';
                     int ret = tg_send_message(&buf[update.message->chat->id->start], resp);
                     if (ret <= 0) {
                         ESP_LOGE(TAG, "Failed sending message with code %i", ret);
