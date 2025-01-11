@@ -25,13 +25,16 @@
     "Host: " HOST_NAME "\r\n" \
     "User-Agent: esp-idf/1.0 esp32\r\n" \
     "Connection: close\r\n\r\n"
+
+#define SEND_MESSAGE_BODY_FORMAT_STRING "{\"reply_markup\":{\"keyboard\":[[{\"text\":\"/open\"},{\"text\":\"/lockopened\"}],[{\"text\":\"/status\"},{\"text\":\"/unlock\"}]]},\"chat_id\":%s,\"text\":\"%s\"}\r\n"
+
 #define SEND_MESSAGE_FORMAT_STRING "POST /bot%s/sendMessage HTTP/1.1\r\n" \
     "Host: " HOST_NAME "\r\n" \
     "User-Agent: esp-idf/1.0 esp32\r\n" \
     "Connection: close\r\n" \
     "Content-Type: application/json\r\n" \
     "Content-length: %i\r\n\r\n" \
-    "{\"chat_id\":%s,\"text\":\"%s\"}\r\n"
+    SEND_MESSAGE_BODY_FORMAT_STRING
 
 typedef struct {
     char bot_token[46];
@@ -619,7 +622,7 @@ cleanup:
 int tg_send_message(char* chat_id, char* text) {
     if (!tg_config.initialized) return ESP_FAIL;
 
-    sprintf(request, SEND_MESSAGE_FORMAT_STRING, tg_config.bot_token, sizeof("{\"chat_id\":,\"text\":\"\"}") - 1 + strlen(chat_id) + strlen(text), chat_id, text);
+    sprintf(request, SEND_MESSAGE_FORMAT_STRING, tg_config.bot_token, sizeof(SEND_MESSAGE_BODY_FORMAT_STRING) - sizeof("%s%s") + strlen(chat_id) + strlen(text), chat_id, text);
     return https_send_request(resp_buf, sizeof(resp_buf), tg_config.tls_cfg, WEB_SERVER_URL, request);
 }
 
