@@ -87,11 +87,11 @@ esp_err_t load_users() {
         memcpy(&users[i], &blob_content, sizeof(users[0]));
     }
 
+exit:
     if (err == ESP_ERR_NVS_NOT_FOUND) {
         err = ESP_OK;
     }
 
-exit:
     if (nvs_handle != 0) {
         nvs_close(nvs_handle);
     }

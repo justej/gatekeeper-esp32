@@ -31,12 +31,12 @@ static char* start_handler(const char* const buf, tg_message_t* message, QueueHa
     }
 
     int32_t min = ((pdTICKS_TO_MS(cfg_get_gate_lock_duration()) / 1000) + 30) / 60;
-    sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open the gate (both upper and lower)\n- open and lock opened the gate for %li minutes. Don't forget to unlock it when you're done", min);
+    sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open upper and lower gates\n- open and lock opened the lower gate for %li minutes. Don't forget to unlock it when you're done", min);
 
     return resp_buf;
 }
 
-static char* open_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* open_upper_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
@@ -45,9 +45,49 @@ static char* open_handler(const char* const buf, tg_message_t* message, QueueHan
         return "Unauthorized";
     }
 
-    int32_t delay = cfg_get_gate_open_duration();
-    xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
-    return "Gate has been opened";
+    gate_delay_t gate_delay = {
+        .delay = cfg_get_gate_open_duration(),
+        .gate = UPPER_GATE,
+    };
+    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+    return "Upper gate has been opened";
+}
+
+static char* open_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
+    gate_delay_t gate_delay = {
+        .delay = cfg_get_gate_open_duration(),
+        .gate = LOWER_GATE,
+    };
+    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+    return "Lower gate has been opened";
+}
+
+static char* open_and_lock_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        return "Unauthorized";
+    }
+
+    gate_delay_t gate_delay = {
+        .delay = cfg_get_gate_lock_duration(),
+        .gate = LOWER_GATE,
+    };
+    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+    int32_t min = ((pdTICKS_TO_MS(cfg_get_gate_lock_duration()) / 1000) + 30) / 60;
+    sprintf(resp_buf, "Lower gate has been opened and locked for %li minutes. Don't forget to unlock it when you're done", min);
+
+    return resp_buf;
 }
 
 static char* status_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
@@ -59,20 +99,20 @@ static char* status_handler(const char* const buf, tg_message_t* message, QueueH
         return "Unauthorized";
     }
 
-    int32_t delay;
-    xQueuePeek(status_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
-    if (delay < 0) {
-        int32_t seconds_left = pdTICKS_TO_MS(-delay) / 1000;
+    int32_t lower_gate_time_left;
+    xQueuePeek(status_queue, &lower_gate_time_left, GK_OPEN_QUEUE_TIMEOUT);
+    if (lower_gate_time_left < 0) {
+        int32_t seconds_left = pdTICKS_TO_MS(-lower_gate_time_left) / 1000;
         int32_t min = seconds_left / 60;
         int32_t sec = seconds_left % 60;
-        sprintf(resp_buf, "Gate status: %li m %li s left till closing\n", min, sec);
+        sprintf(resp_buf, "Lower gate status: %li m %li s left till closing\n", min, sec);
         return resp_buf;
     } else {
-        return "Gate is closed";
+        return "Lower gate is closed";
     }
 }
 
-static char* lock_opened_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static char* lock_lower_opened_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
@@ -81,10 +121,13 @@ static char* lock_opened_handler(const char* const buf, tg_message_t* message, Q
         return "Unauthorized";
     }
 
-    int32_t delay = cfg_get_gate_lock_duration();
-    xQueueSend(open_queue, &delay, GK_OPEN_QUEUE_TIMEOUT);
-    int32_t min = ((pdTICKS_TO_MS(delay) / 1000) + 30) / 60;
-    sprintf(resp_buf, "Gate has been locked for %li minutes\n", min);
+    gate_delay_t gate_delay = {
+        .delay = cfg_get_gate_lock_duration(),
+        .gate = LOWER_GATE,
+    };
+    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+    int32_t min = ((pdTICKS_TO_MS(gate_delay.delay) / 1000) + 30) / 60;
+    sprintf(resp_buf, "Lower gate has been locked for %li minutes\n", min);
     return resp_buf;
 }
 
@@ -97,8 +140,11 @@ static char* unlock_handler(const char* const buf, tg_message_t* message, QueueH
         return "Unauthorized";
     }
 
-    int32_t unlock_command = -1;
-    xQueueSend(open_queue, &unlock_command, GK_OPEN_QUEUE_TIMEOUT);
+    gate_delay_t unlock_gate = {
+        .delay = -1,
+        .gate = LOWER_GATE,
+    };
+    xQueueSend(open_queue, &unlock_gate, GK_OPEN_QUEUE_TIMEOUT);
     return "Gate has been unlocked";
 }
 
@@ -362,9 +408,15 @@ static char* open_level_handler(const char* const buf, tg_message_t* message, Qu
 
 command_handler_t command_handlers[] = {
     {"/start", start_handler},
-    {"/open", open_handler},
+    {"Open upper gate", open_upper_gate_handler},
+    {"Open lower gate", open_lower_gate_handler},
+    {"Open and lock lower gate", open_and_lock_lower_gate_handler},
+    {"Lower gate status", status_handler},
+    {"Unlock lower gate", unlock_handler},
+
+    {"/open", open_upper_gate_handler},
     {"/status", status_handler},
-    {"/lockopened", lock_opened_handler},
+    {"/lockopened", lock_lower_opened_handler},
     {"/unlock", unlock_handler},
     {"/adduser", add_user_handler},
     {"/dropuser", drop_user_handler},

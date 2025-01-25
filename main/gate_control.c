@@ -16,22 +16,22 @@
 #define CFG_NAME_LOCK_DURATION "lockdur"
 #define CFG_NAME_OPEN_LEVEL "openlevel"
 
-#define LEVELS_HIGH_ACTIVE 0b0001
-#define LEVELS_LOW_ACTIVE 0b1110
-#define LEVEL_IDX_DISABLE_ALL 1
-#define LEVEL_IDX_MAX 4
-#define LEVEL_MASK_ACTIVE 0b0001
+#define LEVEL_IDX_DISABLE_ALL 0
+#define LEVEL_IDX_MAX (2 * TOTAL_GATES)
 
 static const char TAG[] = "gate_control";
 
 QueueHandle_t gk_open_queue;
 QueueHandle_t gk_status_queue;
 
-static TickType_t close_gate_at = 0;
-static TickType_t change_level_at = 0;
 static gate_control_config_t config;
 
 static esp_err_t store(char* name, uint32_t value);
+
+typedef struct {
+    uint32_t pin;
+    TickType_t close_gate_at;
+} gate_control_t;
 
 typedef struct {
     char* name;
@@ -39,12 +39,25 @@ typedef struct {
     uint32_t default_value;
 } config_name_value_t;
 
+gate_control_t gates[] = {
+    {
+        // upper gate
+        .pin = GPIO_NUM_15,
+        .close_gate_at = 0,
+    },
+    {
+        // lower gate
+        .pin = GPIO_NUM_4,
+        .close_gate_at = 0,
+    },
+};
+
 config_name_value_t config_name_value_default[] = {
     {.name = CFG_NAME_POLL, .value = &config.gate_poll, .default_value = pdMS_TO_TICKS(20)},
     {.name = CFG_NAME_OPEN_PULSE_DURATION, .value = &config.gate_open_pulse_duration,.default_value = pdMS_TO_TICKS(500)},
     {.name = CFG_NAME_OPEN_DURATION, .value = &config.gate_open_duration,.default_value = pdMS_TO_TICKS(2000)},
     {.name = CFG_NAME_LOCK_DURATION, .value = &config.gate_lock_duration, .default_value = pdMS_TO_TICKS(3600 * 1000)},
-    {.name = CFG_NAME_OPEN_LEVEL, .value = &config.gate_control_levels, .default_value = LEVELS_LOW_ACTIVE},
+    {.name = CFG_NAME_OPEN_LEVEL, .value = &config.open_gate_level, .default_value = 1},
 };
 
 esp_err_t load_gate_config() {
@@ -67,10 +80,13 @@ esp_err_t load_gate_config() {
 
     err = ESP_OK;
 exit:
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        err = ESP_OK;
+    }
+
     if (nvs_handle != 0) {
         nvs_close(nvs_handle);
     }
-
     return err;
 }
 
@@ -91,7 +107,7 @@ uint32_t cfg_get_gate_lock_duration() {
 }
 
 uint32_t cfg_get_open_gate_level() {
-    return config.gate_control_levels & LEVEL_MASK_ACTIVE;
+    return config.open_gate_level;
 }
 
 esp_err_t cfg_set_gate_poll(uint32_t value) {
@@ -139,41 +155,51 @@ esp_err_t cfg_set_gate_lock_duration(uint32_t value) {
 }
 
 esp_err_t cfg_set_open_gate_level(uint32_t value) {
-    if (value == config.gate_control_levels) return ESP_OK;
+    if (value == config.open_gate_level) return ESP_OK;
 
-    uint32_t levels = value ? LEVELS_HIGH_ACTIVE : LEVELS_LOW_ACTIVE;
-    esp_err_t err = store(CFG_NAME_OPEN_LEVEL, levels);
+    esp_err_t err = store(CFG_NAME_OPEN_LEVEL, value);
     if (err == ESP_OK) {
-        config.gate_control_levels = levels;
+        config.open_gate_level = value;
     }
 
     return err;
 }
 
 void startGateControl(QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    int32_t delay;
+    TickType_t change_level_at = 0;
+    gate_delay_t gate_delay;
     size_t levels_idx = LEVEL_IDX_DISABLE_ALL;
 
-    // In order to make sure wraparound won't affect timestamp difference, the values are casted to signed integer
     while (42) {
         TickType_t now = xTaskGetTickCount();
 
-        if (xQueueReceive(open_queue, &delay, cfg_get_gate_poll())) {
-            ESP_LOGI(TAG, "got delay of %li", delay);
+        if (xQueueReceive(open_queue, &gate_delay, cfg_get_gate_poll())) {
+            ESP_LOGI(TAG, "gate %i: got delay of %li", gate_delay.gate, gate_delay.delay);
 
-            if (delay < 0) {
-                close_gate_at = now - 1;
+            if (gate_delay.delay < 0) {
+                gates[gate_delay.gate].close_gate_at = now - 1;
                 change_level_at = now + 1;
             } else {
-                TickType_t new_close_time = now + delay;
-                if (((int32_t)new_close_time - (int32_t)close_gate_at) > 0) {
-                    close_gate_at = new_close_time;
+                TickType_t new_close_time = now + gate_delay.delay;
+                // In order to make sure wraparound won't affect timestamp difference, the values are casted to signed integer
+                if (((int32_t)new_close_time - (int32_t)gates[gate_delay.gate].close_gate_at) > 0) {
+                    gates[gate_delay.gate].close_gate_at = new_close_time;
                 }
             }
         }
 
-        int32_t diff = (int32_t)now - (int32_t)close_gate_at;
-        if (diff > 0) {
+        // The remote doesn't allow pressing both keys simultaneously so press the buttons one at a time
+        // Build array of open gate requests
+        uint32_t open_signals = 0;
+        for (size_t i = 0; i < TOTAL_GATES; i++) {
+            if ((int32_t)now - (int32_t)gates[i].close_gate_at > 0) {
+                gates[i].close_gate_at = now;
+                continue;
+            }
+            open_signals |= 1 << (2 * i + 1);
+        }
+
+        if (open_signals == 0) {
             levels_idx = LEVEL_IDX_DISABLE_ALL;
             change_level_at = now + 1;
         }
@@ -183,16 +209,17 @@ void startGateControl(QueueHandle_t open_queue, QueueHandle_t status_queue) {
             levels_idx++;
         }
 
-        // The remote doesn't allow pressing both keys simultaneously so press the buttons one at a time
-        uint32_t levels = config.gate_control_levels;
-        uint_fast8_t upper_gate_level = !!(levels & (1 << ((levels_idx) % LEVEL_IDX_MAX)));
-        uint_fast8_t lower_gate_level = !!(levels & (1 << ((levels_idx + 2) % LEVEL_IDX_MAX)));
-
-        uint32_t led_level = cfg_get_open_gate_level() ? upper_gate_level | lower_gate_level: upper_gate_level & lower_gate_level;
-        gpio_set_level(GPIO_GATE_UPPER_NUM, upper_gate_level);
-        gpio_set_level(GPIO_GATE_LOWER_NUM, lower_gate_level);
+        uint32_t levels_mask = config.open_gate_level ? config.open_gate_level & open_signals : ~(config.open_gate_level & open_signals);
+        uint32_t led_level = cfg_get_open_gate_level() ? 0 : 1;
+        for (size_t i = 0; i < TOTAL_GATES; i++) {
+            uint_fast8_t gate_level = !!(levels_mask & (1 << ((levels_idx + i * 2) % LEVEL_IDX_MAX)));
+            gpio_set_level(gates[i].pin, gate_level);
+            led_level = cfg_get_open_gate_level() ? led_level | gate_level : led_level & gate_level;
+        }
         gpio_set_level(GPIO_LED_NUM, led_level);
-        xQueueOverwrite(status_queue, &diff);
+
+        int32_t lower_gate_time_left = (int32_t)now - (int32_t)gates[LOWER_GATE].close_gate_at;
+        xQueueOverwrite(status_queue, &lower_gate_time_left);
     }
 }
 
