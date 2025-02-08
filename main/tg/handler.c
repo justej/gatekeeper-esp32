@@ -392,6 +392,7 @@ static char* open_level_handler(const char* const buf, tg_message_t* message, Qu
     token = message->text;
     uint32_t level = 0;
     sscanf(&buf[token->start], "/cfgopenlevel %lu", &level);
+    level = level > 0;
 
     if (token->end - token->start <= sizeof("/cfgopenlevel")) {
         sprintf(resp_buf, "Gate open level: %s", cfg_get_open_gate_level() ? "high" : "low");

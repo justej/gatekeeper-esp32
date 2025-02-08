@@ -16,8 +16,8 @@
 #define CFG_NAME_LOCK_DURATION "lockdur"
 #define CFG_NAME_OPEN_LEVEL "openlevel"
 
-#define LEVEL_IDX_DISABLE_ALL 0
-#define LEVEL_IDX_MAX (2 * TOTAL_GATES)
+#define ACTIVE_OUTPUT_IDX_DISABLE_ALL 0
+#define ACTIVE_OUTPUT_IDX_MAX (2 * TOTAL_GATES)
 
 static const char TAG[] = "gate_control";
 
@@ -168,7 +168,7 @@ esp_err_t cfg_set_open_gate_level(uint32_t value) {
 void startGateControl(QueueHandle_t open_queue, QueueHandle_t status_queue) {
     TickType_t change_level_at = 0;
     gate_delay_t gate_delay;
-    size_t levels_idx = LEVEL_IDX_DISABLE_ALL;
+    size_t active_output_idx = ACTIVE_OUTPUT_IDX_DISABLE_ALL;
 
     while (42) {
         TickType_t now = xTaskGetTickCount();
@@ -189,34 +189,32 @@ void startGateControl(QueueHandle_t open_queue, QueueHandle_t status_queue) {
         }
 
         // The remote doesn't allow pressing both keys simultaneously so press the buttons one at a time
-        // Build array of open gate requests
-        uint32_t open_signals = 0;
+        // Build array of open gate requests: active = 1, inactive = 0
+        uint32_t outputs = 0;
         for (size_t i = 0; i < TOTAL_GATES; i++) {
             if ((int32_t)now - (int32_t)gates[i].close_gate_at > 0) {
                 gates[i].close_gate_at = now;
                 continue;
             }
-            open_signals |= 1 << (2 * i + 1);
+            outputs |= 1 << (2 * i + 1);
         }
 
-        if (open_signals == 0) {
-            levels_idx = LEVEL_IDX_DISABLE_ALL;
+        if (outputs == 0) {
+            active_output_idx = ACTIVE_OUTPUT_IDX_DISABLE_ALL;
             change_level_at = now + 1;
         }
 
         if (((int32_t)now - (int32_t)change_level_at) > 0) {
             change_level_at = now + cfg_get_gate_open_pulse_duration();
-            levels_idx++;
+            active_output_idx = (active_output_idx + 1) % ACTIVE_OUTPUT_IDX_MAX;
         }
 
-        uint32_t levels_mask = config.open_gate_level ? config.open_gate_level & open_signals : ~(config.open_gate_level & open_signals);
-        uint32_t led_level = cfg_get_open_gate_level() ? 0 : 1;
+        gpio_set_level(GPIO_LED_NUM, outputs & (1 << active_output_idx));
         for (size_t i = 0; i < TOTAL_GATES; i++) {
-            uint_fast8_t gate_level = !!(levels_mask & (1 << ((levels_idx + i * 2) % LEVEL_IDX_MAX)));
-            gpio_set_level(gates[i].pin, gate_level);
-            led_level = cfg_get_open_gate_level() ? led_level | gate_level : led_level & gate_level;
+            uint32_t gate_mask = 1 << (2 * i + 1);
+            uint_fast8_t gate_level = outputs & (1 << active_output_idx) & gate_mask;
+            gpio_set_level(gates[i].pin, cfg_get_open_gate_level() ? gate_level : !gate_level);
         }
-        gpio_set_level(GPIO_LED_NUM, led_level);
 
         int32_t lower_gate_time_left = (int32_t)now - (int32_t)gates[LOWER_GATE].close_gate_at;
         xQueueOverwrite(status_queue, &lower_gate_time_left);

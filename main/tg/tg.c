@@ -26,7 +26,7 @@
     "User-Agent: esp-idf/1.0 esp32\r\n" \
     "Connection: close\r\n\r\n"
 
-#define SEND_MESSAGE_BODY_FORMAT_STRING "{\"reply_markup\":{\"keyboard\":[[{\"text\":\"open upper gate\"},{\"text\":\"open lower gate\"}],[{\"text\":\"unlock lower gate\"},{\"text\":\"open and lock lower gate\"}],[{\"text\":\"lower gate status\"}]]},\"chat_id\":%s,\"text\":\"%s\"}\r\n"
+#define SEND_MESSAGE_BODY_FORMAT_STRING "{\"reply_markup\":{\"keyboard\":[[{\"text\":\"Open upper gate\"},{\"text\":\"Open lower gate\"}],[{\"text\":\"Unlock lower gate\"},{\"text\":\"Open and lock lower gate\"}],[{\"text\":\"Lower gate status\"}]]},\"chat_id\":%s,\"text\":\"%s\"}\r\n"
 
 #define SEND_MESSAGE_FORMAT_STRING "POST /bot%s/sendMessage HTTP/1.1\r\n" \
     "Host: " HOST_NAME "\r\n" \
