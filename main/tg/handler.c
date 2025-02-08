@@ -408,17 +408,13 @@ static char* open_level_handler(const char* const buf, tg_message_t* message, Qu
 }
 
 command_handler_t command_handlers[] = {
-    {"/start", start_handler},
     {"Open upper gate", open_upper_gate_handler},
     {"Open lower gate", open_lower_gate_handler},
     {"Open and lock lower gate", open_and_lock_lower_gate_handler},
-    {"Lower gate status", status_handler},
     {"Unlock lower gate", unlock_handler},
+    {"Lower gate status", status_handler},
 
-    {"/open", open_upper_gate_handler},
-    {"/status", status_handler},
-    {"/lockopened", lock_lower_opened_handler},
-    {"/unlock", unlock_handler},
+    {"/start", start_handler},
     {"/adduser", add_user_handler},
     {"/dropuser", drop_user_handler},
     {"/users", list_users_handler},
