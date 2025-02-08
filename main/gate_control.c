@@ -41,12 +41,12 @@ typedef struct {
 
 gate_control_t gates[] = {
     {
-        // upper gate
+        // lower gate
         .pin = GPIO_NUM_15,
         .close_gate_at = 0,
     },
     {
-        // lower gate
+        // upper gate
         .pin = GPIO_NUM_4,
         .close_gate_at = 0,
     },

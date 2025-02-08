@@ -10,8 +10,8 @@
 #define GPIO_GATE_MASK ((1 << GPIO_GATE_UPPER_NUM) | (1 << GPIO_GATE_LOWER_NUM) | (1 << GPIO_LED_NUM))
 
 typedef enum {
-    UPPER_GATE,
     LOWER_GATE,
+    UPPER_GATE,
     //----
     TOTAL_GATES,
 } gate_t;
