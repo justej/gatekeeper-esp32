@@ -25,9 +25,10 @@
 
 static const char TAG[] = "handler";
 
-static char resp_buf[512];
+static handler_response_t resp_batch_buf[MAX_ADMINS + 1];
+static char resp_buf[(MAX_ADMINS + 1) * 512];
 
-typedef char* (*message_handler_t)(const char* const, tg_message_t*, QueueHandle_t, QueueHandle_t);
+typedef handler_response_t* (*message_handler_t)(const char* const, tg_message_t*, QueueHandle_t, QueueHandle_t);
 
 typedef struct {
     const char* const command;
@@ -38,404 +39,463 @@ static uint32_t tick_to_min(uint32_t tick) {
     return ((pdTICKS_TO_MS(tick) / 1000) + 30) / 60;
 }
 
-static char* start_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t user = 0;
-    sscanf(&buf[token->start], "%lli", &user);
-
-    if (!is_authorized(user)) {
-        return "You're not authorized. Contact house committee";
-    }
-
-    uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
-    sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open upper and lower gates\n- open and lock opened lower gate for %lu minutes. Don't forget to unlock it when you're done", min);
-
-    return resp_buf;
-}
-
-static char* help_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t user = 0;
-    sscanf(&buf[token->start], "%lli", &user);
-
-    if (!is_authorized(user)) {
-        return "You're not authorized. Contact house committee";
-    }
-
-    sprintf(resp_buf, "Gate Keeper allows you to:\n- open upper gate\n- open lower gate\n- lock the lower gate opened and unlock later\n- get status of the lower gate.\n\nIf you have any questions contact house committee.");
-
-    return resp_buf;
-}
-
-static char* settings_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t user = 0;
-    sscanf(&buf[token->start], "%lli", &user);
-
-    if (!is_authorized(user)) {
-        return "You're not authorized. Contact house committee";
-    }
-
-    uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
-    int32_t n = sprintf(resp_buf, "Gate Keeper settings:\n- lower gate lock period: %lu min", min);
-    if (is_admin(user)) {
-        sprintf(&resp_buf[n], "\n- polling period (" CMD_CFGGATEPOLL "): %lu msec\n- open pulse duration (" CMD_CFGOPENPULSEDURATION "): %lu msec\n- open cycle duration (" CMD_CFGOPENDURATION "): %lu msec\n- lock period duration (" CMD_CFGLOCKDURATION "): %lu msec\n- open level (" CMD_CFGOPENLEVEL "): %s",
-            pdTICKS_TO_MS(cfg_get_gate_poll()), pdTICKS_TO_MS(cfg_get_gate_open_pulse_duration()), pdTICKS_TO_MS(cfg_get_gate_open_duration()), pdTICKS_TO_MS(cfg_get_gate_lock_duration()), cfg_get_open_gate_level() ? "high" : "low");
-    }
-
-    return resp_buf;
-}
-
-static char* open_upper_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t user = 0;
-    sscanf(&buf[token->start], "%lli", &user);
-
-    if (!is_authorized(user)) {
-        return "Unauthorized";
-    }
-
-    gate_delay_t gate_delay = {
-        .delay = cfg_get_gate_open_duration(),
-        .gate = UPPER_GATE,
+static handler_response_t compose_response(const char* buf, tg_message_t* message, char* text) {
+    handler_response_t response = {
+        .chat_id = &buf[message->chat->id->start],
+        .text = text,
     };
-    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
-    return "Upper gate has been opened";
+
+    return response;
 }
 
-static char* open_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* start_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
 
     if (!is_authorized(user)) {
-        return "Unauthorized";
+        *resp_batch_buf = compose_response(buf, message, "You're not authorized. Contact house committee");
+    } else {
+        uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
+        sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open upper and lower gates\n- open and lock opened lower gate for %lu minutes. Don't forget to unlock it when you're done", min);
+        *resp_batch_buf = compose_response(buf, message, resp_buf);
     }
 
-    gate_delay_t gate_delay = {
-        .delay = cfg_get_gate_open_duration(),
-        .gate = LOWER_GATE,
-    };
-    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
-    return "Lower gate has been opened";
+    return resp_batch_buf;
 }
 
-static char* open_and_lock_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* help_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
 
     if (!is_authorized(user)) {
-        return "Unauthorized";
+        *resp_batch_buf = compose_response(buf, message, "You're not authorized. Contact house committee");
+    } else {
+        sprintf(resp_buf, "Gate Keeper allows you to:\n- open upper gate\n- open lower gate\n- lock the lower gate opened and unlock later\n- get status of the lower gate.\n\nIf you have any questions contact house committee.");
+        *resp_batch_buf = compose_response(buf, message, resp_buf);
     }
 
-    gate_delay_t gate_delay = {
-        .delay = cfg_get_gate_lock_duration(),
-        .gate = LOWER_GATE,
-    };
-    xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
-    uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
-    sprintf(resp_buf, "Lower gate has been opened and locked for %lu minutes. Don't forget to unlock it when you're done", min);
-
-    return resp_buf;
+    return resp_batch_buf;
 }
 
-static char* status_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* settings_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
 
     if (!is_authorized(user)) {
-        return "Unauthorized";
+        *resp_batch_buf = compose_response(buf, message, "You're not authorized. Contact house committee");
+    } else {
+        uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
+        int32_t n = sprintf(resp_buf, "Gate Keeper settings:\n- lower gate lock period: %lu min", min);
+        if (is_admin(user)) {
+            sprintf(&resp_buf[n], "\n- polling period (" CMD_CFGGATEPOLL "): %lu msec\n- open pulse duration (" CMD_CFGOPENPULSEDURATION "): %lu msec\n- open cycle duration (" CMD_CFGOPENDURATION "): %lu msec\n- lock period duration (" CMD_CFGLOCKDURATION "): %lu msec\n- open level (" CMD_CFGOPENLEVEL "): %s",
+                pdTICKS_TO_MS(cfg_get_gate_poll()), pdTICKS_TO_MS(cfg_get_gate_open_pulse_duration()), pdTICKS_TO_MS(cfg_get_gate_open_duration()), pdTICKS_TO_MS(cfg_get_gate_lock_duration()), cfg_get_open_gate_level() ? "high" : "low");
+        }
+        *resp_batch_buf = compose_response(buf, message, resp_buf);
     }
 
-    int32_t lower_gate_time_left;
-    xQueuePeek(status_queue, &lower_gate_time_left, GK_OPEN_QUEUE_TIMEOUT);
-    if (lower_gate_time_left < 0) {
-        int32_t seconds_left = pdTICKS_TO_MS(-lower_gate_time_left) / 1000;
-        int32_t min = seconds_left / 60;
-        int32_t sec = seconds_left % 60;
-        sprintf(resp_buf, "Lower gate status: %li m %li s left till closing\n", min, sec);
-        return resp_buf;
-    } else {
-        return "Lower gate is closed";
-    }
+    return resp_batch_buf;
 }
 
-static char* unlock_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* open_upper_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t user = 0;
     sscanf(&buf[token->start], "%lli", &user);
 
     if (!is_authorized(user)) {
-        return "Unauthorized";
-    }
-
-    gate_delay_t unlock_gate = {
-        .delay = -1,
-        .gate = LOWER_GATE,
-    };
-    xQueueSend(open_queue, &unlock_gate, GK_OPEN_QUEUE_TIMEOUT);
-    return "Gate has been unlocked";
-}
-
-static char* add_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to add user";
-    }
-
-    token = message->text;
-    int64_t id = 0;
-    sscanf(&buf[token->start], CMD_ADDUSER " %lli", &id);
-
-    switch (user_add(id)) {
-    case ESP_OK:
-        return "Added user";
-    case ESP_ERR_USR_ALREADY_EXISTS:
-        return "User exists";
-    case ESP_ERR_USR_NO_SPACE:
-        return "Failed to add user: too many users";
-    default:
-        return "Unknown error";
-    }
-}
-
-static char* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to drop user";
-    }
-
-    token = message->text;
-    int64_t id = 0;
-    sscanf(&buf[token->start], CMD_DROPUSER " %lli", &id);
-
-    switch (user_drop(id)) {
-    case ESP_OK:
-        sprintf(resp_buf, "Dropped user %lli", id);
-        return resp_buf;
-    case ESP_ERR_NOT_FOUND:
-        return "User not found";
-    default:
-        return "Unknown error";
-    }
-}
-
-static char* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to list users";
-    }
-
-    return users_list(resp_buf, sizeof(resp_buf));
-}
-
-static char* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to add admin";
-    }
-
-    token = message->text;
-    int64_t id = 0;
-    sscanf(&buf[token->start], CMD_ADDADMIN " %lli", &id);
-
-    switch (admin_add(id)) {
-    case ESP_OK:
-        return "Added admin";
-    case ESP_ERR_USR_ALREADY_EXISTS:
-        return "Admin exists";
-    case ESP_ERR_USR_NO_SPACE:
-        return "Failed to add admin: too many admins";
-    case ESP_ERR_USR_WRONG_ID:
-        return "Wrong ID";
-    default:
-        return "Unknown error";
-    }
-}
-
-static char* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to drop admin";
-    }
-
-    token = message->text;
-    int64_t id = 0;
-    sscanf(&buf[token->start], CMD_DROPADMIN " %lli", &id);
-
-    if (admin_count() < 2) {
-        return "At least one admin should remain";
-    }
-
-    switch (admin_drop(id)) {
-    case ESP_OK:
-        sprintf(resp_buf, "Dropped admin %lli", id);
-        return resp_buf;
-    case ESP_ERR_NOT_FOUND:
-        return "Admin not found";
-    default:
-        return "Unknown error";
-    }
-}
-
-static char* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to list admins";
-    }
-
-    return admins_list(resp_buf, sizeof(resp_buf));
-}
-
-static char* gate_poll_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
-    jsmntok_t* token = message->from->id;
-    int64_t admin_id = 0;
-    sscanf(&buf[token->start], "%lli", &admin_id);
-
-    if (!is_admin(admin_id)) {
-        return "Unauthorized to set duration";
-    }
-
-    token = message->text;
-    uint32_t period = 0;
-    sscanf(&buf[token->start], CMD_CFGGATEPOLL " %lu", &period);
-
-    if (period == 0) {
-        sprintf(resp_buf, "Gate polling period: %lu msec", pdTICKS_TO_MS(cfg_get_gate_poll()));
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized");
     } else {
-        if (cfg_set_gate_poll(pdMS_TO_TICKS(period)) == ESP_OK) {
-            sprintf(resp_buf, "Gate polling period set %lu msec", period);
+        gate_delay_t gate_delay = {
+            .delay = cfg_get_gate_open_duration(),
+            .gate = UPPER_GATE,
+        };
+        xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+
+        *resp_batch_buf = compose_response(buf, message, "Upper gate has been opened");
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* open_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized");
+    } else {
+        gate_delay_t gate_delay = {
+            .delay = cfg_get_gate_open_duration(),
+            .gate = LOWER_GATE,
+        };
+        xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+        *resp_batch_buf = compose_response(buf, message, "Lower gate has been opened");
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* open_and_lock_lower_gate_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized");
+    } else {
+        gate_delay_t gate_delay = {
+            .delay = cfg_get_gate_lock_duration(),
+            .gate = LOWER_GATE,
+        };
+        xQueueSend(open_queue, &gate_delay, GK_OPEN_QUEUE_TIMEOUT);
+        uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
+        sprintf(resp_buf, "Lower gate has been opened and locked for %lu minutes. Don't forget to unlock it when you're done", min);
+        *resp_batch_buf = compose_response(buf, message, resp_buf);
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* status_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized");
+    } else {
+        int32_t lower_gate_time_left;
+        xQueuePeek(status_queue, &lower_gate_time_left, GK_OPEN_QUEUE_TIMEOUT);
+        if (lower_gate_time_left < 0) {
+            int32_t seconds_left = pdTICKS_TO_MS(-lower_gate_time_left) / 1000;
+            int32_t min = seconds_left / 60;
+            int32_t sec = seconds_left % 60;
+            sprintf(resp_buf, "Lower gate status: %li m %li s left till closing\n", min, sec);
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
         } else {
-            return "Failed to set duration";
+            *resp_batch_buf = compose_response(buf, message, "Lower gate is closed");
         }
     }
 
-    return resp_buf;
+    return resp_batch_buf;
 }
 
-static char* open_pulse_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* unlock_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t user = 0;
+    sscanf(&buf[token->start], "%lli", &user);
+
+    if (!is_authorized(user)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized");
+    } else {
+        gate_delay_t unlock_gate = {
+            .delay = -1,
+            .gate = LOWER_GATE,
+        };
+        xQueueSend(open_queue, &unlock_gate, GK_OPEN_QUEUE_TIMEOUT);
+        *resp_batch_buf = compose_response(buf, message, "Gate has been unlocked");
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* add_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t admin_id = 0;
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to set duration";
-    }
-
-    token = message->text;
-    uint32_t duration = 0;
-    sscanf(&buf[token->start], CMD_CFGOPENPULSEDURATION " %lu", &duration);
-
-    if (duration == 0) {
-        sprintf(resp_buf, "Gate open pulse duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_open_pulse_duration()));
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to add user");
     } else {
-        if (cfg_set_gate_open_pulse_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
-            sprintf(resp_buf, "Gate open pulse duration set %lu msec", duration);
-        } else {
-            return "Failed to set duration";
+        token = message->text;
+        int64_t id = 0;
+        sscanf(&buf[token->start], CMD_ADDUSER " %lli", &id);
+
+        switch (user_add(id)) {
+        case ESP_OK:
+            *resp_batch_buf =  compose_response(buf, message, "Added user");
+            break;
+        case ESP_ERR_USR_ALREADY_EXISTS:
+            *resp_batch_buf =  compose_response(buf, message, "User exists");
+            break;
+        case ESP_ERR_USR_NO_SPACE:
+            *resp_batch_buf =  compose_response(buf, message, "Failed to add user: too many users");
+            break;
+        default:
+            *resp_batch_buf = compose_response(buf, message, "Unknown error");
+            break;
         }
     }
 
-    return resp_buf;
+    return resp_batch_buf;
 }
 
-static char* open_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* drop_user_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t admin_id = 0;
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to set duration";
-    }
-
-    token = message->text;
-    uint32_t duration = 0;
-    sscanf(&buf[token->start], CMD_CFGOPENDURATION " %lu", &duration);
-
-    if (duration == 0) {
-        sprintf(resp_buf, "Gate open cycle duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_open_duration()));
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to drop user");
     } else {
-        if (cfg_set_gate_open_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
-            sprintf(resp_buf, "Gate open cycle duration set %lu msec", duration);
-        } else {
-            return "Failed to set duration";
+        token = message->text;
+        int64_t id = 0;
+        sscanf(&buf[token->start], CMD_DROPUSER " %lli", &id);
+
+        switch (user_drop(id)) {
+        case ESP_OK:
+            sprintf(resp_buf, "Dropped user %lli", id);
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+            break;
+        case ESP_ERR_NOT_FOUND:
+            *resp_batch_buf = compose_response(buf, message, "User not found");
+            break;
+        default:
+            *resp_batch_buf = compose_response(buf, message, "Unknown error");
+            break;
         }
     }
 
-    return resp_buf;
+    return resp_batch_buf;
 }
 
-static char* lock_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* list_users_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t admin_id = 0;
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to set duration";
-    }
-
-    token = message->text;
-    uint32_t duration = 0;
-    sscanf(&buf[token->start], CMD_CFGLOCKDURATION " %lu", &duration);
-
-    if (duration == 0) {
-        sprintf(resp_buf, "Gate lock period duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_lock_duration()));
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to list users");
     } else {
-        if (cfg_set_gate_lock_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
-            sprintf(resp_buf, "Gate lock period duration set %lu msec", duration);
-        } else {
-            return "Failed to set duration";
-        }
+        *resp_batch_buf = compose_response(buf, message, users_list(resp_buf, sizeof(resp_buf)));
     }
 
-    return resp_buf;
+    return resp_batch_buf;
 }
 
-static char* open_level_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static handler_response_t* add_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmntok_t* token = message->from->id;
     int64_t admin_id = 0;
     sscanf(&buf[token->start], "%lli", &admin_id);
 
     if (!is_admin(admin_id)) {
-        return "Unauthorized to set duration";
-    }
-
-    token = message->text;
-    uint32_t level = 0;
-    sscanf(&buf[token->start], CMD_CFGOPENLEVEL " %lu", &level);
-    level = level > 0;
-
-    if (token->end - token->start <= sizeof(CMD_CFGOPENLEVEL)) {
-        sprintf(resp_buf, "Gate open level: %s", cfg_get_open_gate_level() ? "high" : "low");
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to add admin");
     } else {
-        if (cfg_set_open_gate_level(level) == ESP_OK) {
-            sprintf(resp_buf, "Gate open level set %s", level ? "high" : "low");
-        } else {
-            return "Failed to set level";
+        token = message->text;
+        int64_t id = 0;
+        sscanf(&buf[token->start], CMD_ADDADMIN " %lli", &id);
+
+        switch (admin_add(id)) {
+        case ESP_OK:
+            *resp_batch_buf = compose_response(buf, message, "Added admin");
+            break;
+        case ESP_ERR_USR_ALREADY_EXISTS:
+            *resp_batch_buf = compose_response(buf, message, "Admin exists");
+            break;
+        case ESP_ERR_USR_NO_SPACE:
+            *resp_batch_buf = compose_response(buf, message, "Failed to add admin: too many admins");
+            break;
+        case ESP_ERR_USR_WRONG_ID:
+            *resp_batch_buf = compose_response(buf, message, "Wrong ID");
+            break;
+        default:
+            *resp_batch_buf = compose_response(buf, message, "Unknown error");
+            break;
         }
     }
 
-    return resp_buf;
+    return resp_batch_buf;
+}
+
+static handler_response_t* drop_admin_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to drop admin");
+    } else {
+        token = message->text;
+        int64_t id = 0;
+        sscanf(&buf[token->start], CMD_DROPADMIN " %lli", &id);
+
+        if (admin_count() < 2) {
+            *resp_batch_buf = compose_response(buf, message, "At least one admin should remain");
+        } else {
+            switch (admin_drop(id)) {
+            case ESP_OK:
+                sprintf(resp_buf, "Dropped admin %lli", id);
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+                break;
+            case ESP_ERR_NOT_FOUND:
+                *resp_batch_buf = compose_response(buf, message, "Admin not found");
+                break;
+            default:
+                *resp_batch_buf = compose_response(buf, message, "Unknown error");
+                break;
+            }
+        }
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* list_admins_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to list admins");
+    } else {
+        *resp_batch_buf = compose_response(buf, message, admins_list(resp_buf, sizeof(resp_buf)));
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* gate_poll_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to set duration");
+    } else {
+        token = message->text;
+        uint32_t period = 0;
+        sscanf(&buf[token->start], CMD_CFGGATEPOLL " %lu", &period);
+
+        if (period == 0) {
+            sprintf(resp_buf, "Gate polling period: %lu msec", pdTICKS_TO_MS(cfg_get_gate_poll()));
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+        } else {
+            if (cfg_set_gate_poll(pdMS_TO_TICKS(period)) == ESP_OK) {
+                sprintf(resp_buf, "Gate polling period set %lu msec", period);
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+            } else {
+                *resp_batch_buf = compose_response(buf, message, "Failed to set duration");
+            }
+        }
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* open_pulse_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to set duration");
+    } else {
+        token = message->text;
+        uint32_t duration = 0;
+        sscanf(&buf[token->start], CMD_CFGOPENPULSEDURATION " %lu", &duration);
+
+        if (duration == 0) {
+            sprintf(resp_buf, "Gate open pulse duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_open_pulse_duration()));
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+        } else {
+            if (cfg_set_gate_open_pulse_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+                sprintf(resp_buf, "Gate open pulse duration set %lu msec", duration);
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+            } else {
+                *resp_batch_buf = compose_response(buf, message, "Failed to set duration");
+            }
+        }
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* open_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to set duration");
+    } else {
+        token = message->text;
+        uint32_t duration = 0;
+        sscanf(&buf[token->start], CMD_CFGOPENDURATION " %lu", &duration);
+
+        if (duration == 0) {
+            sprintf(resp_buf, "Gate open cycle duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_open_duration()));
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+        } else {
+            if (cfg_set_gate_open_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+                sprintf(resp_buf, "Gate open cycle duration set %lu msec", duration);
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+            } else {
+                *resp_batch_buf = compose_response(buf, message, "Failed to set duration");
+            }
+        }
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* lock_duration_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to set duration");
+    } else {
+        token = message->text;
+        uint32_t duration = 0;
+        sscanf(&buf[token->start], CMD_CFGLOCKDURATION " %lu", &duration);
+
+        if (duration == 0) {
+            sprintf(resp_buf, "Gate lock period duration: %lu msec", pdTICKS_TO_MS(cfg_get_gate_lock_duration()));
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+        } else {
+            if (cfg_set_gate_lock_duration(pdMS_TO_TICKS(duration)) == ESP_OK) {
+                sprintf(resp_buf, "Gate lock period duration set %lu msec", duration);
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+            } else {
+                *resp_batch_buf = compose_response(buf, message, "Failed to set duration");
+            }
+        }
+    }
+
+    return resp_batch_buf;
+}
+
+static handler_response_t* open_level_handler(const char* const buf, tg_message_t* message, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+    jsmntok_t* token = message->from->id;
+    int64_t admin_id = 0;
+    sscanf(&buf[token->start], "%lli", &admin_id);
+
+    if (!is_admin(admin_id)) {
+        *resp_batch_buf = compose_response(buf, message, "Unauthorized to set duration");
+    } else {
+        token = message->text;
+        uint32_t level = 0;
+        sscanf(&buf[token->start], CMD_CFGOPENLEVEL " %lu", &level);
+        level = level > 0;
+
+        if (token->end - token->start <= sizeof(CMD_CFGOPENLEVEL)) {
+            sprintf(resp_buf, "Gate open level: %s", cfg_get_open_gate_level() ? "high" : "low");
+            *resp_batch_buf = compose_response(buf, message, resp_buf);
+        } else {
+            if (cfg_set_open_gate_level(level) == ESP_OK) {
+                sprintf(resp_buf, "Gate open level set %s", level ? "high" : "low");
+                *resp_batch_buf = compose_response(buf, message, resp_buf);
+            } else {
+                *resp_batch_buf = compose_response(buf, message, "Failed to set level");
+            }
+        }
+    }
+
+    return resp_batch_buf;
 }
 
 command_handler_t command_handlers[] = {
@@ -461,7 +521,7 @@ command_handler_t command_handlers[] = {
     {"/settings", settings_handler},
 };
 
-char* gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
+handler_response_t* gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, QueueHandle_t status_queue) {
     tg_log_token(buf, "handling update", update->id);
 
     jsmntok_t* text = update->message->text;
@@ -478,5 +538,7 @@ char* gk_handler(char* buf, tg_update_t* update, QueueHandle_t open_queue, Queue
 
     ESP_LOGE(TAG, "unknown command %.*s", message_size, &buf[text->start]);
 
-    return "Unknown command";
+    *resp_batch_buf = compose_response(buf, update->message, "Unknown command");
+
+    return resp_batch_buf;
 }

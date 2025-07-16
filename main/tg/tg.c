@@ -446,7 +446,7 @@ static bool parse_update(tg_update_t* update, char* buf, jsmntok_t* tokens, int 
     return true;
 }
 
-static void handle_updates(char* buf, int buf_size, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static void handle_updates(char* buf, int buf_size, handler_response_t* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     jsmn_parser parser;
 
     jsmn_init(&parser);
@@ -523,10 +523,10 @@ static void handle_updates(char* buf, int buf_size, char* update_handler(char*, 
                 if (parse_update(&update, buf, tokens, parsed_len, &i_tok)) {
                     tg_config.update_id = atol(&buf[update.id->start]);
 
-                    char* resp = update_handler(buf, &update, open_queue, status_queue);
+                    handler_response_t* resp = update_handler(buf, &update, open_queue, status_queue);
                     if (resp == NULL) continue;
 
-                    int ret = tg_send_message(&buf[update.message->chat->id->start], resp);
+                    int ret = tg_send_message(resp->chat_id, resp->text);
                     if (ret <= 0) {
                         ESP_LOGE(TAG, "Failed sending message with code %i", ret);
                     }
@@ -539,7 +539,7 @@ static void handle_updates(char* buf, int buf_size, char* update_handler(char*, 
     }
 }
 
-static void tg_parse(char* buf, int buf_len, char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+static void tg_parse(char* buf, int buf_len, handler_response_t* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     if (buf_len < 4) {
         return;
     }
@@ -624,7 +624,7 @@ cleanup:
     return ret;
 }
 
-int tg_send_message(char* chat_id, char* text) {
+int tg_send_message(const char* chat_id, const char* text) {
     if (!tg_config.initialized) return ESP_FAIL;
 
     sprintf(request, SEND_MESSAGE_FORMAT_STRING, tg_config.bot_token, sizeof(SEND_MESSAGE_BODY_FORMAT_STRING) - sizeof("%s%s") + strlen(chat_id) + strlen(text), chat_id, text);
@@ -653,7 +653,7 @@ void tg_deinit() {
     tg_config.initialized = false;
 }
 
-void tg_start(char* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
+void tg_start(handler_response_t* update_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t open_queue, QueueHandle_t status_queue) {
     if (!tg_config.initialized) {
         return;
     }

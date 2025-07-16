@@ -4,6 +4,6 @@
 #include "freertos/queue.h"
 #include "tg.h"
 
-char* gk_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t);
+handler_response_t* gk_handler(char*, tg_update_t*, QueueHandle_t, QueueHandle_t);
 
 #endif // _HANDLER_H_

@@ -41,11 +41,16 @@ typedef struct {
     tg_message_t* message;
 } tg_update_t;
 
+typedef struct {
+    const char* chat_id;
+    const char* text;
+} handler_response_t;
+
 void tg_log_token(char*, char*, jsmntok_t*);
 esp_err_t tg_init(char*);
 void tg_deinit();
-int tg_send_message(char* chat_id, char* text);
+int tg_send_message(const char* chat_id, const char* text);
 int tg_get_messages(char* bot_token, int32_t update_id);
-void tg_start(char* (char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t, QueueHandle_t);
+void tg_start(handler_response_t* (char*, tg_update_t*, QueueHandle_t, QueueHandle_t), QueueHandle_t, QueueHandle_t);
 
 #endif // _TG_H_
