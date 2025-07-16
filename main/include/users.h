@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#define MAX_ADMINS 10
+#define MAX_USERS 100
+
 #define ESP_ERR_USR_ALREADY_EXISTS (-1)
 #define ESP_ERR_USR_NO_SPACE (-2)
 #define ESP_ERR_USR_WRONG_ID (-3)

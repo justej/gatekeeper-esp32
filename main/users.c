@@ -23,8 +23,8 @@
 
 static char TAG[] = "users";
 
-static user_t admins[10] = ADMINS_INITIALIZER;
-static user_t users[100] = USERS_INITIALIZER;
+static user_t admins[MAX_ADMINS] = ADMINS_INITIALIZER;
+static user_t users[MAX_USERS] = USERS_INITIALIZER;
 
 static esp_err_t add(int64_t id, user_t* users, size_t size);
 static esp_err_t drop(int64_t id, user_t* users, size_t size);
@@ -47,7 +47,7 @@ esp_err_t load_users() {
     size_t blob_size;
     char key[] = { 0, 0, 0 };
 
-    for (size_t i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
+    for (size_t i = 0; i < MAX_ADMINS; i++) {
         if (admins[i].id != 0) continue;
 
         err = get_nvs_key(key, admins, i);
@@ -67,7 +67,7 @@ esp_err_t load_users() {
         memcpy(&admins[i], &blob_content, sizeof(admins[0]));
     }
 
-    for (size_t i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
+    for (size_t i = 0; i < MAX_USERS; i++) {
         if (users[i].id != 0) continue;
 
         err = get_nvs_key(key, users, i);
@@ -103,7 +103,7 @@ bool is_admin(int64_t id) {
         return false;
     }
 
-    for (int i = 0; i < sizeof(admins) / sizeof(admins[0]); i++) {
+    for (int i = 0; i < MAX_ADMINS; i++) {
         if (admins[i].id == id) {
             return true;
         }
@@ -117,7 +117,7 @@ bool is_user(int64_t id) {
         return false;
     }
 
-    for (int i = 0; i < sizeof(users) / sizeof(users[0]); i++) {
+    for (int i = 0; i < MAX_USERS; i++) {
         if (users[i].id == id) {
             return true;
         }
@@ -131,15 +131,15 @@ bool is_authorized(int64_t id) {
 }
 
 esp_err_t user_add(int64_t id) {
-    return add(id, users, sizeof(users) / sizeof(users[0]));
+    return add(id, users, MAX_USERS);
 }
 
 esp_err_t user_drop(int64_t id) {
-    return drop(id, users, sizeof(users) / sizeof(users[0]));
+    return drop(id, users, MAX_USERS);
 }
 
 char* users_list(char* buf, size_t buf_size) {
-    char* resp = list(buf, buf_size, users, sizeof(users) / sizeof(users[0]));
+    char* resp = list(buf, buf_size, users, MAX_USERS);
 
     if (resp == NULL) {
         return "No users";
@@ -149,19 +149,19 @@ char* users_list(char* buf, size_t buf_size) {
 }
 
 size_t user_count() {
-    return count(users, sizeof(users) / sizeof(users[0]));
+    return count(users, MAX_USERS);
 }
 
 esp_err_t admin_add(int64_t id) {
-    return add(id, admins, sizeof(admins) / sizeof(admins[0]));
+    return add(id, admins, MAX_ADMINS);
 }
 
 esp_err_t admin_drop(int64_t id) {
-    return drop(id, admins, sizeof(admins) / sizeof(admins[0]));
+    return drop(id, admins, MAX_ADMINS);
 }
 
 char* admins_list(char* buf, size_t buf_size) {
-    char* resp = list(buf, buf_size, admins, sizeof(admins) / sizeof(admins[0]));
+    char* resp = list(buf, buf_size, admins, MAX_ADMINS);
 
     if (resp == NULL) {
         return "No admins";
@@ -171,7 +171,7 @@ char* admins_list(char* buf, size_t buf_size) {
 }
 
 size_t admin_count() {
-    return count(admins, sizeof(admins) / sizeof(admins[0]));
+    return count(admins, MAX_ADMINS);
 }
 
 static size_t count(user_t* usr, size_t usr_size) {
@@ -242,10 +242,10 @@ static esp_err_t get_nvs_key(char key[3], user_t* usr, size_t idx) {
     if (idx > UCHAR_MAX) return ESP_ERR_INVALID_SIZE;
 
     if (usr == admins) {
-        if (idx >= sizeof(admins) / sizeof(admins[0])) return ESP_ERR_INVALID_SIZE;
+        if (idx >= MAX_ADMINS) return ESP_ERR_INVALID_SIZE;
         key[0] = 'a';
     } else if (usr == users) {
-        if (idx >= sizeof(users) / sizeof(users[0])) return ESP_ERR_INVALID_SIZE;
+        if (idx >= MAX_USERS) return ESP_ERR_INVALID_SIZE;
         key[0] = 'u';
     } else {
         ESP_LOGE(TAG, "Unknown user privilege");
