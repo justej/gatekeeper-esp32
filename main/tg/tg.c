@@ -54,7 +54,7 @@ static int https_send_request(char*, int, esp_tls_cfg_t, const char*, const char
 static jsmntok_t tokens[TOK_LEN];
 static char req_buf[4096];
 static char resp_buf[4096];
-static char request[1024]; // make sure the request fits this size because currently it's almost overflown
+static char request[2048]; // make sure the request fits this size
 
 static const char TAG[] = "tg";
 
@@ -523,12 +523,14 @@ static void handle_updates(char* buf, int buf_size, handler_response_t* update_h
                 if (parse_update(&update, buf, tokens, parsed_len, &i_tok)) {
                     tg_config.update_id = atol(&buf[update.id->start]);
 
-                    handler_response_t* resp = update_handler(buf, &update, open_queue, status_queue);
-                    if (resp == NULL) continue;
+                    handler_response_t* resp_batch = update_handler(buf, &update, open_queue, status_queue);
+                    if (resp_batch == NULL) continue;
 
-                    int ret = tg_send_message(resp->chat_id, resp->text);
-                    if (ret <= 0) {
-                        ESP_LOGE(TAG, "Failed sending message with code %i", ret);
+                    for (int idx = 0; resp_batch[idx].chat_id != NULL; idx++) {
+                        int ret = tg_send_message(resp_batch[idx].chat_id, resp_batch[idx].text);
+                        if (ret <= 0) {
+                            ESP_LOGE(TAG, "Failed sending message with code %i", ret);
+                        }
                     }
                 }
             }

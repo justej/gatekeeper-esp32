@@ -30,5 +30,6 @@ esp_err_t admin_add(int64_t id);
 esp_err_t admin_drop(int64_t id);
 char* admins_list(char* buf, size_t buf_size);
 size_t admin_count();
+size_t get_admin_ids(int64_t* buf, size_t buf_size);
 
 #endif // _USERS_H_

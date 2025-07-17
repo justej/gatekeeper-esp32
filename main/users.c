@@ -174,6 +174,18 @@ size_t admin_count() {
     return count(admins, MAX_ADMINS);
 }
 
+size_t get_admin_ids(int64_t* buf, size_t buf_size) {
+    size_t count = 0;
+    for (int i = 0; i < MAX_ADMINS && count < buf_size; i++) {
+        if (admins[i].id != 0) {
+            buf[count] = admins[i].id;
+            count++;
+        }
+    }
+
+    return count;
+}
+
 static size_t count(user_t* usr, size_t usr_size) {
     int counter = 0;
     for (int i = 0; i < usr_size; i++) {
@@ -181,6 +193,7 @@ static size_t count(user_t* usr, size_t usr_size) {
             counter++;
         }
     }
+
     return counter;
 }
 

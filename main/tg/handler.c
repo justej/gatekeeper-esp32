@@ -25,8 +25,9 @@
 
 static const char TAG[] = "handler";
 
-static handler_response_t resp_batch_buf[MAX_ADMINS + 1];
-static char resp_buf[(MAX_ADMINS + 1) * 512];
+static handler_response_t resp_batch_buf[MAX_ADMINS + 2];
+static char resp_buf[512];
+static char admin_ids[MAX_ADMINS][20];
 
 typedef handler_response_t* (*message_handler_t)(const char* const, tg_message_t*, QueueHandle_t, QueueHandle_t);
 
@@ -54,7 +55,23 @@ static handler_response_t* start_handler(const char* const buf, tg_message_t* me
     sscanf(&buf[token->start], "%lli", &user);
 
     if (!is_authorized(user)) {
-        *resp_batch_buf = compose_response(buf, message, "You're not authorized. Contact house committee");
+        int64_t admins[MAX_ADMINS];
+        size_t admin_count = get_admin_ids(admins, MAX_ADMINS);
+
+        const char* first_name = &buf[message->from->first_name->start]; // mandatory field
+        const char* last_name = message->from->last_name ? &buf[message->from->last_name->start] : ""; // optional field
+        const char* username = message->from->username ? &buf[message->from->username->start] : ""; // optional field
+
+        sprintf(resp_buf, "🚨 Unauthorized user has started Gate Keeper bot:\nUser ID: %lli\nUsername: %s\nFirst name: %s\nLast name: %s\n\n⚠️ Verify the user before authorizing them.",
+            user, username, first_name, last_name);
+
+        for (size_t i = 0; i < admin_count; i++) {
+            sprintf(admin_ids[i], "%lli", admins[i]);
+            handler_response_t resp = { admin_ids[i], resp_buf };
+            resp_batch_buf[i] = resp;
+        }
+
+        resp_batch_buf[admin_count] = compose_response(buf, message, "You're not authorized. Your details have been sent to house committee");
     } else {
         uint32_t min = tick_to_min(cfg_get_gate_lock_duration());
         sprintf(resp_buf, "Welcome to Gate Keeper!\nHere you can:\n- open upper and lower gates\n- open and lock opened lower gate for %lu minutes. Don't forget to unlock it when you're done", min);
@@ -216,13 +233,13 @@ static handler_response_t* add_user_handler(const char* const buf, tg_message_t*
 
         switch (user_add(id)) {
         case ESP_OK:
-            *resp_batch_buf =  compose_response(buf, message, "Added user");
+            *resp_batch_buf = compose_response(buf, message, "Added user");
             break;
         case ESP_ERR_USR_ALREADY_EXISTS:
-            *resp_batch_buf =  compose_response(buf, message, "User exists");
+            *resp_batch_buf = compose_response(buf, message, "User exists");
             break;
         case ESP_ERR_USR_NO_SPACE:
-            *resp_batch_buf =  compose_response(buf, message, "Failed to add user: too many users");
+            *resp_batch_buf = compose_response(buf, message, "Failed to add user: too many users");
             break;
         default:
             *resp_batch_buf = compose_response(buf, message, "Unknown error");
@@ -526,6 +543,9 @@ handler_response_t* gk_handler(char* buf, tg_update_t* update, QueueHandle_t ope
 
     jsmntok_t* text = update->message->text;
     if (text == NULL) return NULL;
+
+    // Delete previous responses
+    memset(resp_batch_buf, 0, sizeof(resp_batch_buf));
 
     int message_size = text->end - text->start;
     for (int i = 0; i < sizeof(command_handlers) / sizeof(command_handlers[0]); i++) {
